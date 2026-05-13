@@ -112,17 +112,14 @@ FEATURE_WINDOW_SIZE = 15
 # FILE PATHS
 # =============================================================================
 
-# Path for the CSV file with periodic posture summaries (for Streamlit / OpenClaw)
-CSV_OUTPUT_PATH = "posture_log.csv"
+import os
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "processed", "posture")
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# Path for the training data CSV (for ML classifier)
-TRAINING_DATA_PATH = "training_data.csv"
-
-# Path for the saved ML model
-MODEL_PATH = "posture_model.pkl"
-
-# Path for the calibration baseline data
-CALIBRATION_PATH = "calibration_baseline.json"
+CSV_OUTPUT_PATH = os.path.join(DATA_DIR, "posture_log.csv")
+TRAINING_DATA_PATH = os.path.join(DATA_DIR, "training_data.csv")
+MODEL_PATH = os.path.join(DATA_DIR, "posture_model.pkl")
+CALIBRATION_PATH = os.path.join(DATA_DIR, "calibration_baseline.json")
 
 # =============================================================================
 # VISUALIZATION SETTINGS

@@ -296,7 +296,7 @@ class PostureClassifier:
                             color=color, fontsize=20, fontweight="bold")
 
             plt.tight_layout()
-            filename = f"confusion_matrix_{model_type}.png"
+            filename = os.path.join(config.DATA_DIR, f"confusion_matrix_{model_type}.png")
             plt.savefig(filename, dpi=150)
             plt.close()
             print(f"  Confusion matrix saved: {filename}")

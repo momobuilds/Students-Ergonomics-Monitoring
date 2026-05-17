@@ -13,6 +13,7 @@ from urllib.parse import urljoin
 
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "llama3.2:1b"
+MAX_ROWS_IN_CHAT_RESPONSE = 25
 
 
 def _reason_text(fusion_result: dict) -> str:
@@ -283,6 +284,91 @@ def _highest_risk_summary(df) -> str | None:
     return ", ".join(parts)
 
 
+def _question_mentions_current_row(user_question: str) -> bool:
+    question = (user_question or "").lower()
+    current_terms = [
+        "current",
+        "selected",
+        "this row",
+        "this minute",
+        "now",
+        "right now",
+        "my risk",
+        "why is my risk",
+    ]
+    return any(term in question for term in current_terms)
+
+
+def _requested_status(user_question: str) -> str | None:
+    question = (user_question or "").lower()
+    if "warning" in question:
+        return "Warning"
+    if "high risk" in question or "high-risk" in question or "highrisk" in question:
+        return "High Risk"
+    if "normal" in question:
+        return "Normal"
+    return None
+
+
+def _question_requests_rows(user_question: str) -> bool:
+    question = (user_question or "").lower()
+    row_terms = [
+        "row",
+        "rows",
+        "list",
+        "show",
+        "which",
+        "when",
+        "timestamps",
+        "timestamp",
+    ]
+    status = _requested_status(question)
+    return status is not None and any(term in question for term in row_terms)
+
+
+def _format_status_rows(df, status: str, limit: int = MAX_ROWS_IN_CHAT_RESPONSE) -> str:
+    if "status" not in df.columns:
+        return "The dataframe does not include a fusion status column yet."
+
+    matches = df[df["status"].astype(str).str.lower() == status.lower()]
+    total = len(matches)
+    if total == 0:
+        return f"I could not find any rows with status {status} in the full dataset."
+
+    columns = [
+        column
+        for column in [
+            "timestamp",
+            "heart_rate_bpm",
+            "blink_rate_per_min",
+            "posture_status",
+            "slouching_time_minutes",
+            "temperature_c",
+            "final_risk_score",
+            "reasons",
+        ]
+        if column in matches.columns
+    ]
+
+    lines = [
+        f"I found {total} rows with status {status} in the full dataset.",
+        f"Showing the first {min(limit, total)} rows:",
+    ]
+
+    for index, row in matches.head(limit).iterrows():
+        row_number = index + 1
+        values = ", ".join(f"{column}: {_row_get(row, column)}" for column in columns)
+        lines.append(f"- Row {row_number}: {values}")
+
+    if total > limit:
+        lines.append(
+            f"There are {total - limit} more {status} rows in the table below the charts."
+        )
+
+    lines.append("The current prototype data is simulated.")
+    return "\n".join(lines)
+
+
 def summarize_available_data(df, selected_row=None, fusion_result=None) -> str:
     """Create a compact, safe summary for local LLM chat."""
     lines = [
@@ -394,9 +480,9 @@ def build_chat_prompt(user_question, data_summary) -> str:
         "that is relevant. Do not make medical claims or diagnoses. Keep the answer "
         "short, practical, and student-friendly. Important: use the FULL SESSION "
         "DATA SUMMARY for questions about trends, changes over time, the session, "
-        "or general performance. Use the CURRENT SELECTED MINUTE ONLY section only "
-        "when the user asks about now, the current reading, this row, or why the "
-        "currently selected risk/status appears.\n\n"
+        "general performance, lists of rows, or status counts. Do not answer from "
+        "the selected minute unless the user explicitly asks about now, current, "
+        "selected, or this row.\n\n"
         f"{data_summary}\n\n"
         f"User question: {user_question}"
     )
@@ -430,11 +516,22 @@ def answer_data_question(
     ollama_host=DEFAULT_OLLAMA_HOST,
 ) -> str:
     """Answer dashboard questions using only local data and local Ollama."""
+    if _question_requests_rows(user_question):
+        return _format_status_rows(df, _requested_status(user_question))
+
+    include_selected_context = _question_mentions_current_row(user_question)
+
     if not use_local_llm:
-        return _fallback_chat_answer(fusion_result)
+        if include_selected_context:
+            return _fallback_chat_answer(fusion_result)
+        return summarize_available_data(df)
 
     try:
-        data_summary = summarize_available_data(df, selected_row, fusion_result)
+        data_summary = summarize_available_data(
+            df,
+            selected_row if include_selected_context else None,
+            fusion_result if include_selected_context else None,
+        )
         prompt = build_chat_prompt(user_question, data_summary)
         messages = [
             {

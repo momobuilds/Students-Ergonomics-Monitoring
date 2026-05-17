@@ -22,7 +22,11 @@ if str(CURRENT_DIR) not in sys.path:
 
 from fusion import apply_fusion_to_dataframe, calculate_fusion_result
 from generate_fake_data import generate_fake_data
-from llm_advisor import generate_advice
+from llm_advisor import (
+    answer_data_question,
+    check_ollama_available,
+    generate_advice,
+)
 
 
 @st.cache_data
@@ -61,6 +65,8 @@ def main() -> None:
 
     if "monitoring_active" not in st.session_state:
         st.session_state.monitoring_active = False
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
 
     with st.sidebar:
         st.header("Monitoring")
@@ -90,9 +96,32 @@ def main() -> None:
         )
         selected_index = timestamp_options.index(selected_timestamp)
 
+        st.header("Local LLM")
+        use_local_llm = st.checkbox("Use Local LLM with Ollama", value=False)
+        ollama_model = st.text_input("Ollama model", value="llama3.2:1b")
+        ollama_host = st.text_input("Ollama host", value="http://localhost:11434")
+        ollama_available = check_ollama_available(ollama_host)
+        if ollama_available:
+            st.success("Ollama appears available.")
+        else:
+            st.warning("Ollama is not available.")
+
+        if st.button("Clear Chat", use_container_width=True):
+            st.session_state.chat_history = []
+
     selected_row = df.iloc[selected_index]
     fusion_result = calculate_fusion_result(selected_row)
-    advice = generate_advice(fusion_result, selected_row)
+    effective_use_local_llm = use_local_llm and ollama_available
+    if use_local_llm and not ollama_available:
+        st.warning("Local LLM is enabled, but Ollama is unavailable. Using mock advice.")
+
+    advice = generate_advice(
+        fusion_result,
+        selected_row,
+        use_local_llm=effective_use_local_llm,
+        model=ollama_model,
+        ollama_host=ollama_host,
+    )
 
     st.subheader("Current Sensor Readings")
     metric_columns = st.columns(5)
@@ -124,8 +153,49 @@ def main() -> None:
     score_columns[3].metric("Temperature Score", fusion_result["temperature_score"])
 
     st.subheader("AI Ergonomic Assistant")
+    st.metric("Alert Level", advice["alert_level"])
     st.info(advice["explanation"])
     st.write(advice["recommendation"])
+
+    st.subheader("Chat with Local Ergonomic Assistant")
+    st.caption(
+        "The chat uses the full simulated dataset plus the current selected minute. No cloud API is used."
+    )
+    example_questions = [
+        "Why is my risk high?",
+        "What changed over time?",
+        "What should I improve first?",
+        "Is this data real or simulated?",
+        "Summarize my current session.",
+    ]
+    st.caption("Example questions: " + " | ".join(example_questions))
+
+    for message in st.session_state.chat_history:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+
+    user_question = st.chat_input("Ask about the current sensor and fusion data")
+    if user_question:
+        st.session_state.chat_history.append(
+            {"role": "user", "content": user_question}
+        )
+        with st.chat_message("user"):
+            st.write(user_question)
+
+        answer = answer_data_question(
+            user_question,
+            df_with_fusion,
+            selected_row=df_with_fusion.iloc[selected_index],
+            fusion_result=fusion_result,
+            use_local_llm=effective_use_local_llm,
+            model=ollama_model,
+            ollama_host=ollama_host,
+        )
+        st.session_state.chat_history.append(
+            {"role": "assistant", "content": answer}
+        )
+        with st.chat_message("assistant"):
+            st.write(answer)
 
     chart_data = df_with_fusion.set_index("timestamp")
     st.subheader("Sensor Trends")

@@ -6,6 +6,14 @@ sensor fusion output in student-friendly language.
 
 from __future__ import annotations
 
+import json
+from urllib import error, request
+from urllib.parse import urljoin
+
+
+DEFAULT_OLLAMA_HOST = "http://localhost:11434"
+DEFAULT_OLLAMA_MODEL = "llama3.2:1b"
+
 
 def _reason_text(fusion_result: dict) -> str:
     reasons = fusion_result.get("reasons") or []
@@ -14,23 +22,121 @@ def _reason_text(fusion_result: dict) -> str:
     return ", ".join(reasons)
 
 
+def _row_get(sensor_row, key: str, default="Unknown"):
+    if hasattr(sensor_row, "get"):
+        value = sensor_row.get(key, default)
+        return default if value is None else value
+    return default
+
+
+def _normalize_host(ollama_host: str) -> str:
+    return (ollama_host or DEFAULT_OLLAMA_HOST).rstrip("/") + "/"
+
+
+def check_ollama_available(ollama_host=DEFAULT_OLLAMA_HOST) -> bool:
+    """Return True when the local Ollama server is reachable."""
+    try:
+        url = urljoin(_normalize_host(ollama_host), "api/tags")
+        with request.urlopen(url, timeout=2) as response:
+            return 200 <= response.status < 300
+    except (error.URLError, TimeoutError, OSError):
+        return False
+
+
+def call_ollama_chat(
+    messages,
+    model=DEFAULT_OLLAMA_MODEL,
+    ollama_host=DEFAULT_OLLAMA_HOST,
+    timeout=30,
+) -> str | None:
+    """Call Ollama's local chat endpoint and return assistant text."""
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+    }
+    body = json.dumps(payload).encode("utf-8")
+    url = urljoin(_normalize_host(ollama_host), "api/chat")
+    http_request = request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with request.urlopen(http_request, timeout=timeout) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
+    except (error.URLError, TimeoutError, OSError, json.JSONDecodeError):
+        return None
+
+    message = response_data.get("message", {})
+    content = message.get("content")
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+    return None
+
+
+def parse_advice_response(text, fallback_status="Unknown") -> dict:
+    """Parse LLM JSON advice and guarantee the expected response shape."""
+    default_advice = {
+        "alert_level": fallback_status,
+        "explanation": text or "The local LLM did not return an explanation.",
+        "recommendation": (
+            "Review the dashboard values and follow the system alert guidance."
+        ),
+    }
+
+    if not text:
+        return default_advice
+
+    cleaned_text = text.strip()
+    if cleaned_text.startswith("```"):
+        cleaned_text = cleaned_text.strip("`")
+        if cleaned_text.lower().startswith("json"):
+            cleaned_text = cleaned_text[4:].strip()
+
+    try:
+        parsed = json.loads(cleaned_text)
+    except json.JSONDecodeError:
+        return default_advice
+
+    if not isinstance(parsed, dict):
+        return default_advice
+
+    return {
+        "alert_level": parsed.get("alert_level") or fallback_status,
+        "explanation": parsed.get("explanation") or default_advice["explanation"],
+        "recommendation": parsed.get("recommendation")
+        or default_advice["recommendation"],
+    }
+
+
 def build_llm_prompt(fusion_result, sensor_row) -> str:
-    """Build a prompt that can later be sent to a local LLM such as Ollama."""
+    """Build a strict prompt for local-only ergonomic advice."""
     reasons = _reason_text(fusion_result) or "no major risk signals"
     return (
-        "You are an ergonomic assistant for students. Explain the sensor fusion "
-        "result clearly and give brief, practical advice. Do not recalculate the "
-        "risk score.\n\n"
+        "You are an ergonomic assistant for students. You must not recalculate "
+        "the risk score. Only explain the provided deterministic sensor fusion "
+        "output. Do not make a medical diagnosis. Keep the advice short, "
+        "practical, and student-friendly. Return valid JSON only with exactly "
+        "these keys: alert_level, explanation, recommendation.\n\n"
         f"Fusion status: {fusion_result.get('status', 'Unknown')}\n"
         f"Final risk score: {fusion_result.get('final_risk_score', 'Unknown')}\n"
         f"Fusion reasons: {reasons}\n"
-        f"Heart rate: {sensor_row.get('heart_rate_bpm', 'Unknown')} bpm\n"
-        f"Baseline heart rate: {sensor_row.get('baseline_heart_rate_bpm', 'Unknown')} bpm\n"
-        f"Blink rate: {sensor_row.get('blink_rate_per_min', 'Unknown')} blinks/min\n"
-        f"Posture: {sensor_row.get('posture_status', 'Unknown')}\n"
-        f"Slouching time: {sensor_row.get('slouching_time_minutes', 'Unknown')} minutes\n"
-        f"Temperature: {sensor_row.get('temperature_c', 'Unknown')} C\n\n"
-        "Return an alert level, one explanation sentence, and one recommendation."
+        f"Heart rate: {_row_get(sensor_row, 'heart_rate_bpm')} bpm\n"
+        f"Baseline heart rate: {_row_get(sensor_row, 'baseline_heart_rate_bpm')} bpm\n"
+        f"Blink rate: {_row_get(sensor_row, 'blink_rate_per_min')} blinks/min\n"
+        f"Posture: {_row_get(sensor_row, 'posture_status')}\n"
+        f"Slouching time: {_row_get(sensor_row, 'slouching_time_minutes')} minutes\n"
+        f"Temperature: {_row_get(sensor_row, 'temperature_c')} C\n"
+        f"Data source: {_row_get(sensor_row, 'data_source', 'simulated')}\n\n"
+        "JSON format:\n"
+        "{\n"
+        '  "alert_level": "...",\n'
+        '  "explanation": "...",\n'
+        '  "recommendation": "..."\n'
+        "}"
     )
 
 
@@ -71,24 +177,283 @@ def generate_mock_advice(fusion_result, sensor_row) -> dict:
     }
 
 
-def generate_advice_with_local_llm(prompt):
-    """Placeholder for a local-only LLM integration.
+def generate_advice_with_local_llm(
+    prompt,
+    model=DEFAULT_OLLAMA_MODEL,
+    ollama_host=DEFAULT_OLLAMA_HOST,
+    fallback_status="Unknown",
+) -> dict | None:
+    """Generate advice through local Ollama, returning None on any failure."""
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You explain deterministic ergonomics fusion results. "
+                "Do not diagnose, do not recalculate scores, and return JSON only."
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+    response_text = call_ollama_chat(messages, model=model, ollama_host=ollama_host)
+    if response_text is None:
+        return None
 
-    Later, this function can call Ollama, llama.cpp, or another local model
-    running on the same machine. It intentionally does not call any cloud API.
-    """
-    # Example future integration point:
-    # response = ollama.chat(model="llama3", messages=[{"role": "user", "content": prompt}])
-    # return parse_local_llm_response(response)
-    return None
+    return parse_advice_response(response_text, fallback_status=fallback_status)
 
 
-def generate_advice(fusion_result, sensor_row, use_local_llm=False) -> dict:
+def generate_advice(
+    fusion_result,
+    sensor_row,
+    use_local_llm=False,
+    model=DEFAULT_OLLAMA_MODEL,
+    ollama_host=DEFAULT_OLLAMA_HOST,
+) -> dict:
     """Return a student-friendly explanation and recommendation."""
     if use_local_llm:
         prompt = build_llm_prompt(fusion_result, sensor_row)
-        local_response = generate_advice_with_local_llm(prompt)
+        local_response = generate_advice_with_local_llm(
+            prompt,
+            model=model,
+            ollama_host=ollama_host,
+            fallback_status=fusion_result.get("status", "Unknown"),
+        )
         if isinstance(local_response, dict):
+            local_response["alert_level"] = (
+                local_response.get("alert_level") or fusion_result.get("status", "Unknown")
+            )
             return local_response
 
     return generate_mock_advice(fusion_result, sensor_row)
+
+
+def _safe_mean(df, column: str):
+    if column not in df.columns:
+        return None
+    try:
+        return df[column].dropna().astype(float).mean()
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_first_last(df, column: str):
+    if column not in df.columns or df.empty:
+        return None
+    try:
+        values = df[column].dropna()
+        if values.empty:
+            return None
+        return values.iloc[0], values.iloc[-1]
+    except (IndexError, TypeError, ValueError):
+        return None
+
+
+def _safe_min_max(df, column: str):
+    if column not in df.columns:
+        return None
+    try:
+        values = df[column].dropna().astype(float)
+        if values.empty:
+            return None
+        return values.min(), values.max()
+    except (TypeError, ValueError):
+        return None
+
+
+def _highest_risk_summary(df) -> str | None:
+    if df.empty or "final_risk_score" not in df.columns:
+        return None
+
+    try:
+        highest_index = df["final_risk_score"].astype(float).idxmax()
+        row = df.loc[highest_index]
+    except (TypeError, ValueError):
+        return None
+
+    parts = [
+        f"score {_row_get(row, 'final_risk_score')}",
+        f"status {_row_get(row, 'status')}",
+    ]
+    timestamp = _row_get(row, "timestamp", None)
+    if timestamp is not None:
+        parts.append(f"timestamp {timestamp}")
+    reasons = _row_get(row, "reasons", None)
+    if reasons is not None:
+        parts.append(f"reasons {reasons}")
+
+    return ", ".join(parts)
+
+
+def summarize_available_data(df, selected_row=None, fusion_result=None) -> str:
+    """Create a compact, safe summary for local LLM chat."""
+    lines = [
+        "FULL SESSION DATA SUMMARY:",
+        f"- Number of rows: {len(df)}",
+    ]
+
+    if "timestamp" in df.columns and not df.empty:
+        try:
+            lines.append(
+                f"- Time range: {df['timestamp'].min()} to {df['timestamp'].max()}"
+            )
+        except (TypeError, ValueError):
+            pass
+
+    average_fields = [
+        ("Average heart rate", "heart_rate_bpm", "bpm"),
+        ("Average blink rate", "blink_rate_per_min", "blinks/min"),
+        ("Average slouching time", "slouching_time_minutes", "minutes"),
+        ("Average final risk score", "final_risk_score", ""),
+    ]
+    for label, column, unit in average_fields:
+        mean_value = _safe_mean(df, column)
+        if mean_value is not None:
+            suffix = f" {unit}" if unit else ""
+            lines.append(f"- {label}: {mean_value:.2f}{suffix}")
+
+    trend_fields = [
+        ("Heart rate", "heart_rate_bpm", "bpm"),
+        ("Blink rate", "blink_rate_per_min", "blinks/min"),
+        ("Slouching time", "slouching_time_minutes", "minutes"),
+        ("Final risk score", "final_risk_score", ""),
+    ]
+    for label, column, unit in trend_fields:
+        first_last = _safe_first_last(df, column)
+        min_max = _safe_min_max(df, column)
+        if first_last is not None:
+            first_value, last_value = first_last
+            suffix = f" {unit}" if unit else ""
+            lines.append(
+                f"- {label} first-to-last: {first_value}{suffix} to {last_value}{suffix}"
+            )
+        if min_max is not None:
+            min_value, max_value = min_max
+            suffix = f" {unit}" if unit else ""
+            lines.append(
+                f"- {label} range: {min_value:.2f}{suffix} to {max_value:.2f}{suffix}"
+            )
+
+    if "status" in df.columns:
+        try:
+            status_counts = df["status"].value_counts(dropna=True).to_dict()
+            lines.append(f"- Fusion status counts: {status_counts}")
+        except (TypeError, ValueError):
+            pass
+
+    if "data_source" in df.columns:
+        try:
+            sources = sorted(str(value) for value in df["data_source"].dropna().unique())
+            lines.append(f"- Data sources: {', '.join(sources)}")
+        except (TypeError, ValueError):
+            pass
+
+    highest_risk = _highest_risk_summary(df)
+    if highest_risk is not None:
+        lines.append(f"- Highest-risk row in full session: {highest_risk}")
+
+    if selected_row is not None:
+        lines.append("")
+        lines.append("CURRENT SELECTED MINUTE ONLY:")
+        selected_fields = [
+            "timestamp",
+            "heart_rate_bpm",
+            "baseline_heart_rate_bpm",
+            "blink_rate_per_min",
+            "posture_status",
+            "slouching_time_minutes",
+            "temperature_c",
+            "data_source",
+        ]
+        for field in selected_fields:
+            value = _row_get(selected_row, field, None)
+            if value is not None:
+                lines.append(f"  - {field}: {value}")
+
+    if fusion_result:
+        lines.append("")
+        lines.append("CURRENT SELECTED MINUTE FUSION RESULT:")
+        lines.extend(
+            [
+                f"- Current fusion status: {fusion_result.get('status', 'Unknown')}",
+                f"- Current final risk score: {fusion_result.get('final_risk_score', 'Unknown')}",
+                f"- Current fusion reasons: {_reason_text(fusion_result)}",
+            ]
+        )
+
+    lines.append(
+        "- Note: the current prototype data is simulated until real sensors are integrated."
+    )
+    return "\n".join(lines)
+
+
+def build_chat_prompt(user_question, data_summary) -> str:
+    """Build a local chat prompt grounded only in the dashboard data summary."""
+    return (
+        "You are a local ergonomic assistant for a student monitoring dashboard. "
+        "Answer only using the available data summary below. Do not invent sensor "
+        "values. Be honest that the current data is simulated or incomplete when "
+        "that is relevant. Do not make medical claims or diagnoses. Keep the answer "
+        "short, practical, and student-friendly. Important: use the FULL SESSION "
+        "DATA SUMMARY for questions about trends, changes over time, the session, "
+        "or general performance. Use the CURRENT SELECTED MINUTE ONLY section only "
+        "when the user asks about now, the current reading, this row, or why the "
+        "currently selected risk/status appears.\n\n"
+        f"{data_summary}\n\n"
+        f"User question: {user_question}"
+    )
+
+
+def _fallback_chat_answer(fusion_result=None) -> str:
+    if fusion_result:
+        status = fusion_result.get("status", "Unknown")
+        score = fusion_result.get("final_risk_score", "Unknown")
+        reasons = _reason_text(fusion_result) or "the available sensor readings"
+        return (
+            "The local LLM is not available right now. Based on the current fusion "
+            f"result, the status is {status} with a risk score of {score}. "
+            f"The main reasons are: {reasons}. The data is simulated in this prototype."
+        )
+
+    return (
+        "The local LLM is not available right now. Based on the current fusion result, "
+        "review the dashboard values and follow the system alert guidance. The data is "
+        "simulated in this prototype."
+    )
+
+
+def answer_data_question(
+    user_question,
+    df,
+    selected_row=None,
+    fusion_result=None,
+    use_local_llm=True,
+    model=DEFAULT_OLLAMA_MODEL,
+    ollama_host=DEFAULT_OLLAMA_HOST,
+) -> str:
+    """Answer dashboard questions using only local data and local Ollama."""
+    if not use_local_llm:
+        return _fallback_chat_answer(fusion_result)
+
+    try:
+        data_summary = summarize_available_data(df, selected_row, fusion_result)
+        prompt = build_chat_prompt(user_question, data_summary)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You answer questions about a local ergonomics dashboard. "
+                    "Use only supplied data. Do not diagnose."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ]
+        response_text = call_ollama_chat(
+            messages,
+            model=model,
+            ollama_host=ollama_host,
+        )
+    except Exception:
+        return _fallback_chat_answer(fusion_result)
+
+    if response_text:
+        return response_text
+    return _fallback_chat_answer(fusion_result)

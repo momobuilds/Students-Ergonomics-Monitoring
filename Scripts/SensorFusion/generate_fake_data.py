@@ -14,7 +14,8 @@ import random
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_PATH = REPO_ROOT / "data" / "fake_sensor_data.csv"
-ROW_COUNT = 120
+SESSION_HOURS = 8
+ROW_COUNT = SESSION_HOURS * 60
 FIELDNAMES = [
     "timestamp",
     "heart_rate_bpm",
@@ -69,8 +70,25 @@ def _high_risk_row(rng: random.Random, timestamp: datetime) -> dict:
     }
 
 
+def _row_for_minute(rng: random.Random, minute: int, timestamp: datetime) -> dict:
+    """Simulate an 8-hour session with changing ergonomic conditions."""
+    if minute < 90:
+        return _normal_row(rng, timestamp)
+    if minute < 150:
+        return _warning_row(rng, timestamp)
+    if minute < 210:
+        return _high_risk_row(rng, timestamp)
+    if minute < 270:
+        return _warning_row(rng, timestamp)
+    if minute < 360:
+        return _normal_row(rng, timestamp)
+    if minute < 420:
+        return _warning_row(rng, timestamp)
+    return _high_risk_row(rng, timestamp)
+
+
 def generate_fake_data(output_path: Path | str = DEFAULT_OUTPUT_PATH) -> list[dict]:
-    """Create two hours of minute-level simulated ergonomics data."""
+    """Create an 8-hour minute-level simulated ergonomics session."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -82,13 +100,7 @@ def generate_fake_data(output_path: Path | str = DEFAULT_OUTPUT_PATH) -> list[di
     rows = []
     for minute in range(ROW_COUNT):
         timestamp = start_time + timedelta(minutes=minute)
-
-        if minute < 45:
-            rows.append(_normal_row(rng, timestamp))
-        elif minute < 85:
-            rows.append(_warning_row(rng, timestamp))
-        else:
-            rows.append(_high_risk_row(rng, timestamp))
+        rows.append(_row_for_minute(rng, minute, timestamp))
 
     with output_path.open("w", newline="", encoding="utf-8") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=FIELDNAMES)
@@ -103,7 +115,8 @@ def main() -> None:
     print(f"Generated {len(rows)} simulated sensor rows.")
     print(f"Saved fake sensor data to: {DEFAULT_OUTPUT_PATH.relative_to(REPO_ROOT)}")
     print("Data source: simulated")
-    print("Includes Normal, Warning, and High Risk examples.")
+    print(f"Session length: {SESSION_HOURS} hours at 1 row per minute.")
+    print("Includes repeated Normal, Warning, and High Risk examples.")
 
 
 if __name__ == "__main__":

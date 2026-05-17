@@ -10,10 +10,13 @@ import json
 from urllib import error, request
 from urllib.parse import urljoin
 
+import pandas as pd
+
 
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "llama3.2:1b"
 MAX_ROWS_IN_CHAT_RESPONSE = 25
+DEFAULT_LUNCH_HOUR = 12
 
 
 def _reason_text(fusion_result: dict) -> str:
@@ -369,6 +372,128 @@ def _format_status_rows(df, status: str, limit: int = MAX_ROWS_IN_CHAT_RESPONSE)
     return "\n".join(lines)
 
 
+def _metric_from_question(user_question: str):
+    question = (user_question or "").lower()
+    metrics = [
+        ("heart_rate_bpm", "heart rate", "bpm", ["heart rate", "heartrate", "heart"]),
+        (
+            "blink_rate_per_min",
+            "blink rate",
+            "blinks/min",
+            ["blink rate", "blink", "blinks"],
+        ),
+        (
+            "slouching_time_minutes",
+            "slouching time",
+            "minutes",
+            ["slouching", "slouch"],
+        ),
+        (
+            "final_risk_score",
+            "final risk score",
+            "",
+            ["risk score", "final risk", "risk"],
+        ),
+        ("temperature_c", "temperature", "C", ["temperature", "temp"]),
+    ]
+
+    for column, label, unit, aliases in metrics:
+        if any(alias in question for alias in aliases):
+            return column, label, unit
+    return None
+
+
+def _question_requests_average(user_question: str) -> bool:
+    question = (user_question or "").lower()
+    average_terms = ["average", "avg", "mean"]
+    return any(term in question for term in average_terms)
+
+
+def _time_filter_from_question(user_question: str):
+    question = (user_question or "").lower()
+    before_terms = ["before", "befor", "pre"]
+    after_terms = ["after", "post"]
+
+    mentions_lunch = "lunch" in question
+    mentions_noon = "noon" in question or "midday" in question
+    mentions_morning = "morning" in question
+    mentions_afternoon = "afternoon" in question
+
+    if (mentions_lunch or mentions_noon or mentions_morning) and any(
+        term in question for term in before_terms
+    ):
+        return "before", DEFAULT_LUNCH_HOUR, "before lunch/noon"
+
+    if (mentions_lunch or mentions_noon or mentions_afternoon) and any(
+        term in question for term in after_terms
+    ):
+        return "after", DEFAULT_LUNCH_HOUR, "after lunch/noon"
+
+    if mentions_morning:
+        return "before", DEFAULT_LUNCH_HOUR, "in the morning"
+
+    if mentions_afternoon:
+        return "after", DEFAULT_LUNCH_HOUR, "in the afternoon"
+
+    return None
+
+
+def _average_metric_answer(user_question: str, df) -> str | None:
+    metric = _metric_from_question(user_question)
+    if not _question_requests_average(user_question) or metric is None:
+        return None
+
+    column, label, unit = metric
+    if column not in df.columns:
+        return f"The dataset does not include `{column}`, so I cannot calculate that average."
+
+    filtered_df = df
+    filter_description = "for the full dataset"
+    assumption = ""
+    time_filter = _time_filter_from_question(user_question)
+
+    if time_filter is not None:
+        if "timestamp" not in df.columns:
+            return "The dataset does not include timestamps, so I cannot filter by lunch time."
+
+        direction, hour, filter_description = time_filter
+        timestamps = pd.to_datetime(df["timestamp"], errors="coerce")
+        if direction == "before":
+            filtered_df = df[timestamps.dt.hour < hour]
+        else:
+            filtered_df = df[timestamps.dt.hour >= hour]
+        assumption = f" I treated lunch/noon as {hour:02d}:00."
+
+    if filtered_df.empty:
+        return (
+            f"I could not find any rows {filter_description}, so I cannot calculate "
+            f"the average {label}.{assumption}"
+        )
+
+    try:
+        values = filtered_df[column].dropna().astype(float)
+    except (TypeError, ValueError):
+        return f"The `{column}` values are not numeric enough to calculate an average."
+
+    if values.empty:
+        return f"There are no valid `{column}` values {filter_description}."
+
+    average_value = values.mean()
+    unit_text = f" {unit}" if unit else ""
+    time_range = ""
+    if "timestamp" in filtered_df.columns:
+        time_range = (
+            f" Time range used: {filtered_df['timestamp'].min()} to "
+            f"{filtered_df['timestamp'].max()}."
+        )
+
+    return (
+        f"The average {label} {filter_description} is {average_value:.2f}{unit_text} "
+        f"based on {len(values)} rows.{assumption}{time_range} "
+        "The current prototype data is simulated."
+    )
+
+
 def summarize_available_data(df, selected_row=None, fusion_result=None) -> str:
     """Create a compact, safe summary for local LLM chat."""
     lines = [
@@ -516,6 +641,10 @@ def answer_data_question(
     ollama_host=DEFAULT_OLLAMA_HOST,
 ) -> str:
     """Answer dashboard questions using only local data and local Ollama."""
+    calculated_answer = _average_metric_answer(user_question, df)
+    if calculated_answer is not None:
+        return calculated_answer
+
     if _question_requests_rows(user_question):
         return _format_status_rows(df, _requested_status(user_question))
 

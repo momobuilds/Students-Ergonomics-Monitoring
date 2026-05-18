@@ -2,3 +2,4 @@ mediapipe==0.10.21
 opencv-contrib-python==4.10.0.84
 numpy==1.26.4
 scikit-learn==1.8.0
+pyserial

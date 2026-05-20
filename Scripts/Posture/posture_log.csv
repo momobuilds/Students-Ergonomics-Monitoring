@@ -1,0 +1,2 @@
+timestamp,period_start,period_end,good_posture_pct,avg_shoulder_asymmetry,avg_head_lateral_tilt,avg_forward_head_proxy,alerts_in_period,dominant_status
+2026-05-13 10:31:07,10:30:15,10:31:07,15.2,2.22,2.38,-24.19,0,Slouching

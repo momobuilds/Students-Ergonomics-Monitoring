@@ -97,7 +97,7 @@ class PostureMonitor:
         End the current session. Saves any remaining data to CSV.
         """
         if self._metrics_buffer:
-            self._save_csv_summary()
+            self.save_csv_snapshot()
 
         session_duration = time.time() - self._session_start if self._session_start else 0
         print(f"[INFO] Session ended. Duration: {session_duration:.0f}s, "
@@ -123,7 +123,31 @@ class PostureMonitor:
         pose_detected = analysis_result.get("pose_detected", False)
 
         if not pose_detected:
-            self._current_state["status"] = "No Pose Detected"
+            self._metrics_buffer.append({
+                "timestamp": now,
+                "status": "No Pose Detected",
+                "metrics": {},
+            })
+
+            session_duration = now - self._session_start if self._session_start else 0
+            self._current_state = {
+                "status": "No Pose Detected",
+                "metrics": {},
+                "alert_active": self._alert_active,
+                "alert_tier": self._alert_tier,
+                "bad_posture_duration": 0,
+                "all_bad_duration": 0,
+                "session_duration": round(session_duration, 1),
+                "total_bad_seconds": round(self._total_bad_seconds, 1),
+                "total_good_seconds": round(self._total_good_seconds, 1),
+                "good_posture_percentage": round(self._get_good_percentage(), 1),
+                "alert_count": self._alert_count,
+            }
+
+            if now - self._last_csv_save >= config.CSV_SAVE_INTERVAL:
+                self.save_csv_snapshot()
+                self._last_csv_save = now
+
             return self._current_state
 
         # --- Update time counters ---
@@ -177,7 +201,7 @@ class PostureMonitor:
 
         # --- Periodic CSV save ---
         if now - self._last_csv_save >= config.CSV_SAVE_INTERVAL:
-            self._save_csv_summary()
+            self.save_csv_snapshot()
             self._last_csv_save = now
 
         # --- Update shared state ---
@@ -210,6 +234,19 @@ class PostureMonitor:
         """
         return self._current_state.copy()
 
+    def save_csv_snapshot(self):
+        """
+        Save the buffered posture data to CSV and report how many frames were included.
+        """
+        rows_saved = len(self._metrics_buffer)
+        if rows_saved == 0:
+            print("[INFO] Posture CSV snapshot skipped: no posture frames buffered.")
+            return 0
+
+        self._save_csv_summary()
+        print(f"[INFO] Posture CSV snapshot saved: {rows_saved} frames summarized.")
+        return rows_saved
+
     # =========================================================================
     # CSV MANAGEMENT
     # =========================================================================
@@ -237,16 +274,17 @@ class PostureMonitor:
         Aggregate buffered metrics and write a summary row to CSV.
         """
         if not self._metrics_buffer:
-            return
+            return 0
 
         metric_sums = {}
         metric_counts = {}
-        status_counts = {"Good": 0, "Slouching": 0}
+        status_counts = {"Good": 0, "Slouching": 0, "No Pose Detected": 0, "Unknown": 0}
 
         for entry in self._metrics_buffer:
             status = entry["status"]
-            if status in status_counts:
-                status_counts[status] += 1
+            if status not in status_counts:
+                status_counts[status] = 0
+            status_counts[status] += 1
 
             for key, val in entry["metrics"].items():
                 if val is not None and "value" in val:
@@ -264,9 +302,9 @@ class PostureMonitor:
             else:
                 metric_avgs[key] = None
 
-        total = status_counts["Good"] + status_counts["Slouching"]
+        total = sum(status_counts.values())
         good_pct = (status_counts["Good"] / total * 100) if total > 0 else 0
-        dominant = "Good" if status_counts["Good"] >= status_counts["Slouching"] else "Slouching"
+        dominant = max(status_counts, key=status_counts.get)
 
         period_start = self._metrics_buffer[0]["timestamp"]
         period_end = self._metrics_buffer[-1]["timestamp"]
@@ -287,6 +325,7 @@ class PostureMonitor:
 
         print(f"[INFO] CSV summary saved. Good posture: {good_pct:.1f}%, Status: {dominant}")
         self._metrics_buffer = []
+        return 1
 
     # =========================================================================
     # HELPERS

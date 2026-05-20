@@ -408,8 +408,7 @@ def main():
                 if baseline:
                     analyzer.set_baseline(baseline)
             elif key == ord("s"):
-                monitor._save_csv_summary()
-                print("[INFO] CSV snapshot saved.")
+                monitor.save_csv_snapshot()
 
     except KeyboardInterrupt:
         print("\n[INFO] Interrupted by user.")

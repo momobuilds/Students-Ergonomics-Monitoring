@@ -6,4 +6,3 @@ pyserial
 streamlit
 pandas
 matplotlib
-joblib

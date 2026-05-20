@@ -35,11 +35,11 @@ def HR_Calibration(port="COM3", duration = 60):
     plt.title("CMS50D Live Data")
     plt.legend()
 
-    last_hr = None
     last_draw_time = 0.0
     min_hr_bpm = 40
     min_beat_distance = int(target_fps * 60 / min_hr_bpm)
 
+    last_hr = None
     hr_values = []
     wave_buffer = deque(maxlen=300)
     time_buffer = deque(maxlen=300)
@@ -97,10 +97,7 @@ def HR_Calibration(port="COM3", duration = 60):
 
                 if hr is not None:
                     last_hr = hr
-
-                    if hr != last_logged_hr:
-                        hr_values.append(hr)
-                        last_logged_hr = hr
+                    hr_values.append(hr)
 
             if xdata:
                 cutoff = xdata[-1] - datetime.timedelta(seconds=window_seconds)

@@ -1,0 +1,378 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{geometry}
+\usepackage{setspace}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{caption}
+
+\geometry{margin=1in}
+\onehalfspacing
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+}
+
+\lstdefinestyle{pythonstyle}{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    columns=fullflexible,
+    keepspaces=true
+}
+
+\title{Sensor Fusion Design for a Student Ergonomics Monitoring System}
+\author{Project: Students Ergonomics Monitoring}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report presents a research-based sensor fusion design for a student ergonomics monitoring system. The project uses a laptop webcam, a wearable heart-rate sensor, and an optional temperature patch to monitor posture, blinking behavior, heart rate, and temperature while a student works at a laptop. Because these sensing sources produce different data types and update at different rates, the proposed design uses time-windowed feature-level fusion followed by decision-level fusion. The output is a single ergonomic and fatigue risk score classified as Normal, Warning, or High Risk. The system is intended for a Streamlit dashboard and optional notification/agent integration.
+\end{abstract}
+
+\section{Project Context}
+The proposed system monitors student fatigue, stress, and posture during laptop work. The main sensing inputs are:
+
+\begin{itemize}[leftmargin=*]
+    \item a laptop webcam for eye openness, blink rate, and human pose estimation;
+    \item a wearable sensor for heart-rate measurement;
+    \item an optional temperature patch for body or skin temperature;
+    \item a software dashboard, such as Streamlit, for real-time visualization and alerts.
+\end{itemize}
+
+The project needs sensor fusion because each sensor gives only a partial view of the student's condition. For example, high heart rate alone may not always mean stress, and slouching alone may not always mean fatigue. Combining posture, blink rate, heart-rate change, and optional temperature allows the system to produce a more reliable final decision.
+
+\section{Research Background}
+
+\subsection{Sensor Fusion Levels}
+Sensor fusion is commonly described at three levels: signal level, feature level, and decision level. A recent wearable data fusion paper by Celik and Godfrey (2023) explains that combining data from different sources can create a more complete picture of health and activity than isolated single-sensor measurements \cite{celik2023wearablefusion}. For this project, signal-level fusion is not ideal because the data types are heterogeneous: webcam frames, body landmarks, blink counts, heart-rate values, and temperature values. Therefore, the recommended approach is feature-level fusion and decision-level fusion.
+
+\subsection{Wearable Health Monitoring}
+A recent review on multisensor data fusion for wearable health monitoring highlights that fusion methods can improve reliability, accuracy, and resilience in health monitoring systems, while also noting challenges such as sensor noise, different acquisition systems, and data quality \cite{john2024wearablefusion}. These challenges are directly relevant to this project because the webcam, wearable heart-rate sensor, and temperature patch update at different rates and may contain missing or noisy values.
+
+\subsection{Fatigue and Stress Monitoring}
+Monteiro et al. investigated an integrated sensor fusion system for mental fatigue assessment using physiological sensors and convolutional neural networks \cite{monteiro2020fatiguefusion}. Their work supports the general idea that multiple physiological signals can be combined to assess fatigue more robustly than a single sensor. Rashid et al. proposed a context-aware sensor fusion method for stress detection from wearable devices and emphasized the importance of robustness under noisy sensing conditions \cite{rashid2023stressfusion}. These studies justify using heart-rate change, blinking behavior, and posture together in the proposed student monitoring system.
+
+\subsection{Computer Vision for Posture and Fatigue Features}
+For posture monitoring, computer-vision-based ergonomic risk assessment has been explored as a low-cost and non-intrusive approach for continuous posture analysis \cite{agostinelli2024ergonomics}. For fatigue-related facial cues, Makhmudov et al. reviewed real-time, non-intrusive sleepiness detection using machine learning and visual cues such as eye state and yawning \cite{makhmudov2024fatigue}. These sources support using a webcam to extract posture and blink features before fusion.
+
+\section{Selected Fusion Approach for This Project}
+
+The selected method is:
+
+\begin{quote}
+\textbf{Time-windowed feature-level fusion followed by decision-level fusion using a weighted risk score and rule-based alerts.}
+\end{quote}
+
+This approach is suitable because it is simple, explainable, and practical for a student prototype.
+
+\subsection{Why Not Raw Signal-Level Fusion?}
+Raw signal-level fusion would require combining video frames, pose landmarks, heart-rate samples, and temperature samples directly. This is difficult because the sensors have different formats and sampling rates. Instead, each sensor should first produce useful features. These features can then be fused in a synchronized time window.
+
+\subsection{Feature-Level Fusion}
+Each sensing module produces features:
+
+\begin{longtable}{p{0.24\textwidth}p{0.32\textwidth}p{0.34\textwidth}}
+\caption{Sensor inputs and extracted fusion features.}\\
+\toprule
+\textbf{Sensor/Input} & \textbf{Extracted Feature} & \textbf{Purpose} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Sensor/Input} & \textbf{Extracted Feature} & \textbf{Purpose} \\
+\midrule
+\endhead
+Laptop webcam - face/eyes & Blink rate, eye openness, eye closure duration & Fatigue and eye-strain estimation \\
+Laptop webcam - pose estimation & Neck/shoulder angle, slouching percentage, slouching duration & Ergonomic posture risk estimation \\
+Heart-rate wearable & Average BPM, change from personal baseline, heart-rate variability if available & Stress or physical strain estimation \\
+Optional temperature patch & Average temperature, change from baseline & Additional physiological context \\
+\bottomrule
+\end{longtable}
+
+\subsection{Time-Window Fusion}
+The system should fuse data every fixed time window, for example every 60 seconds. This reduces noise and handles different sensor update rates. For a window $w$ with duration $\Delta t$, the system computes:
+
+\begin{equation}
+\overline{HR}_w = \frac{1}{n}\sum_{i=1}^{n} HR_i
+\end{equation}
+
+\begin{equation}
+BR_w = \frac{\text{number of blinks in window}}{\Delta t \text{ in minutes}}
+\end{equation}
+
+\begin{equation}
+SD_w = \frac{\text{time spent slouching}}{\Delta t}
+\end{equation}
+
+where $\overline{HR}_w$ is average heart rate, $BR_w$ is blink rate, and $SD_w$ is the slouching ratio during the time window.
+
+\subsection{Decision-Level Fusion}
+After feature extraction, each sensing module produces a normalized score between 0 and 1:
+
+\begin{itemize}[leftmargin=*]
+    \item $S_p$: posture risk score;
+    \item $S_b$: blink/fatigue risk score;
+    \item $S_h$: heart-rate risk score;
+    \item $S_t$: temperature risk score, optional.
+\end{itemize}
+
+These scores are combined into a final risk score:
+
+\begin{equation}
+R = 0.35S_p + 0.30S_b + 0.25S_h + 0.10S_t
+\end{equation}
+
+The weights are design choices for the prototype. Posture and blinking receive the highest weights because the project is focused on ergonomics and fatigue. Heart rate is also important but can change for many reasons. Temperature is optional, so it receives the smallest weight.
+
+\section{Score Design}
+
+\subsection{Posture Risk Score}
+The posture score can be based on the percentage of the window spent slouching:
+
+\begin{equation}
+S_p =
+\begin{cases}
+0.0, & SD_w < 0.20 \\
+0.5, & 0.20 \leq SD_w < 0.60 \\
+1.0, & SD_w \geq 0.60
+\end{cases}
+\end{equation}
+
+This means the posture risk becomes high when the student spends most of the last minute slouching.
+
+\subsection{Blink/Fatigue Risk Score}
+The blink score can be calculated from the blink rate:
+
+\begin{equation}
+S_b =
+\begin{cases}
+0.0, & BR_w \geq 12 \\
+0.5, & 7 \leq BR_w < 12 \\
+1.0, & BR_w < 7
+\end{cases}
+\end{equation}
+
+These thresholds should be treated as prototype values and should be calibrated using a short baseline session for each student.
+
+\subsection{Heart-Rate Risk Score}
+Heart-rate risk should be based on change from personal baseline, not only a fixed BPM threshold:
+
+\begin{equation}
+\Delta HR = \overline{HR}_w - HR_{baseline}
+\end{equation}
+
+\begin{equation}
+S_h =
+\begin{cases}
+0.0, & \Delta HR < 10 \\
+0.5, & 10 \leq \Delta HR < 25 \\
+1.0, & \Delta HR \geq 25
+\end{cases}
+\end{equation}
+
+\subsection{Temperature Risk Score}
+If temperature is included, it can be scored using deviation from baseline:
+
+\begin{equation}
+S_t =
+\begin{cases}
+0.0, & |T_w - T_{baseline}| < 0.5 \\
+0.5, & 0.5 \leq |T_w - T_{baseline}| < 1.0 \\
+1.0, & |T_w - T_{baseline}| \geq 1.0
+\end{cases}
+\end{equation}
+
+If the temperature sensor is not used, set $S_t = 0$ and either keep the same formula or renormalize the remaining weights.
+
+\section{Risk Classification and Alerts}
+
+The final risk score $R$ is mapped into a system status:
+
+\begin{longtable}{p{0.22\textwidth}p{0.28\textwidth}p{0.40\textwidth}}
+\caption{Final risk classification.}\\
+\toprule
+\textbf{Risk Score} & \textbf{Status} & \textbf{Dashboard Message} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Risk Score} & \textbf{Status} & \textbf{Dashboard Message} \\
+\midrule
+\endhead
+$R < 0.30$ & Normal & Continue working normally. \\
+$0.30 \leq R < 0.60$ & Warning & Check posture, blink more often, or take a short pause. \\
+$R \geq 0.60$ & High Risk & Take a break, sit upright, relax shoulders, and look away from the screen. \\
+\bottomrule
+\end{longtable}
+
+Rule-based alerts can be added on top of the score:
+
+\begin{itemize}[leftmargin=*]
+    \item If $S_p \geq 0.7$ for five consecutive windows, alert: ``You have been slouching for several minutes.''
+    \item If $S_b \geq 0.7$, alert: ``Your blink rate is low. Rest your eyes.''
+    \item If $S_h \geq 0.7$ and $S_p \geq 0.7$, alert: ``Elevated heart rate and poor posture detected. Stand up and stretch.''
+    \item If $S_p$, $S_b$, and $S_h$ are all high, alert: ``High fatigue and ergonomic risk. Take a break now.''
+\end{itemize}
+
+\section{System Architecture}
+
+\begin{verbatim}
+Webcam video ---------------> Eye/blink feature extraction ------\
+Webcam video ---------------> Pose/posture feature extraction ----\
+Heart-rate wearable --------> HR feature extraction --------------- >
+Temperature patch optional -> Temperature feature extraction ------/
+                                            |
+                                            v
+                              Time-window aggregation
+                                            |
+                                            v
+                       Weighted sensor fusion risk score
+                                            |
+                                            v
+                      Normal / Warning / High Risk decision
+                                            |
+                                            v
+                         Streamlit dashboard and alerts
+\end{verbatim}
+
+\section{Implementation Plan}
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Build individual sensor modules.} Create one Python module for webcam blink detection, one for posture estimation, one for heart-rate reading, and one optional module for temperature.
+    \item \textbf{Extract features.} Convert raw data into blink rate, posture score, average heart rate, and temperature deviation.
+    \item \textbf{Create a baseline.} Record the student's normal heart rate and normal temperature during a calm seated session.
+    \item \textbf{Aggregate by time window.} Every 60 seconds, compute the average or percentage features.
+    \item \textbf{Normalize scores.} Convert each feature into a 0 to 1 risk score.
+    \item \textbf{Fuse scores.} Calculate the final weighted risk score.
+    \item \textbf{Generate alerts.} Use both the final score and rule-based conditions to create dashboard messages.
+    \item \textbf{Save logs.} Save timestamp, features, risk scores, final status, and alert message to a CSV file.
+\end{enumerate}
+
+\section{Example Fusion Code}
+
+\begin{lstlisting}[style=pythonstyle, language=Python]
+def posture_score(slouch_ratio):
+    if slouch_ratio < 0.20:
+        return 0.0
+    elif slouch_ratio < 0.60:
+        return 0.5
+    return 1.0
+
+
+def blink_score(blinks_per_minute):
+    if blinks_per_minute >= 12:
+        return 0.0
+    elif blinks_per_minute >= 7:
+        return 0.5
+    return 1.0
+
+
+def heart_score(avg_hr, baseline_hr):
+    delta = avg_hr - baseline_hr
+    if delta < 10:
+        return 0.0
+    elif delta < 25:
+        return 0.5
+    return 1.0
+
+
+def temperature_score(avg_temp, baseline_temp):
+    delta = abs(avg_temp - baseline_temp)
+    if delta < 0.5:
+        return 0.0
+    elif delta < 1.0:
+        return 0.5
+    return 1.0
+
+
+def fuse_scores(posture, blink, heart, temperature=0.0):
+    risk = 0.35 * posture + 0.30 * blink + 0.25 * heart + 0.10 * temperature
+
+    if risk < 0.30:
+        status = "Normal"
+    elif risk < 0.60:
+        status = "Warning"
+    else:
+        status = "High Risk"
+
+    reasons = []
+    if posture >= 0.7:
+        reasons.append("bad posture")
+    if blink >= 0.7:
+        reasons.append("possible eye fatigue")
+    if heart >= 0.7:
+        reasons.append("elevated heart rate")
+    if temperature >= 0.7:
+        reasons.append("temperature change")
+
+    return risk, status, reasons
+\end{lstlisting}
+
+\section{Evaluation Plan}
+
+The fusion system should be evaluated in simple controlled sessions:
+
+\begin{longtable}{p{0.28\textwidth}p{0.32\textwidth}p{0.30\textwidth}}
+\caption{Suggested evaluation tests.}\\
+\toprule
+\textbf{Test Scenario} & \textbf{Expected Sensor Pattern} & \textbf{Expected Fusion Output} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Test Scenario} & \textbf{Expected Sensor Pattern} & \textbf{Expected Fusion Output} \\
+\midrule
+\endhead
+Normal seated work & Normal HR, normal blink rate, good posture & Normal \\
+Intentional slouching & High slouching percentage, normal HR & Warning or Posture Risk \\
+Screen focus without blinking & Low blink rate, normal posture & Warning or Eye Fatigue Risk \\
+Posture stress simulation & Slouching plus elevated HR & Warning or High Risk \\
+Combined fatigue simulation & Slouching, low blink rate, elevated HR & High Risk \\
+\bottomrule
+\end{longtable}
+
+Recommended metrics include false alarm rate, missed alert rate, average response time, percentage of missing sensor data, and user feedback about whether alerts are useful.
+
+\section{Limitations and Ethical Considerations}
+
+This system is not a medical diagnostic tool. Heart rate, blinking, posture, and temperature can be affected by many factors, including exercise, caffeine, room temperature, stress unrelated to studying, and individual differences. Therefore, the system should present results as ergonomic and fatigue support, not as medical diagnosis. Since webcam and physiological data are sensitive, local processing and local CSV storage are preferred. If a local LLM or notification agent is added later, it should receive only the fused risk summary rather than raw video or raw physiological data.
+
+\section{Conclusion}
+
+For this project, the most appropriate sensor fusion design is a time-windowed feature-level and decision-level method. The system first extracts features from the webcam, heart-rate wearable, and optional temperature patch. Then it synchronizes the features in fixed windows and calculates a weighted final risk score. This approach is practical, explainable, and supported by research on wearable data fusion, health-monitoring sensor fusion, fatigue assessment, stress detection, and computer-vision-based ergonomic monitoring.
+
+\begin{thebibliography}{9}
+
+\bibitem{celik2023wearablefusion}
+Y. E. Celik and A. Godfrey, ``Bringing it all together: wearable data fusion,'' \textit{npj Digital Medicine}, vol. 6, article 149, 2023. DOI: \href{https://doi.org/10.1038/s41746-023-00897-6}{10.1038/s41746-023-00897-6}. Available: \url{https://www.nature.com/articles/s41746-023-00897-6}
+
+\bibitem{john2024wearablefusion}
+A. John, B. Cardiff, and D. John, ``A Review on Multisensor Data Fusion for Wearable Health Monitoring,'' arXiv preprint arXiv:2412.05895, 2024. Available: \url{https://arxiv.org/abs/2412.05895}
+
+\bibitem{monteiro2020fatiguefusion}
+T. G. Monteiro, G. Li, C. Skourup, and H. Zhang, ``Investigating an Integrated Sensor Fusion System for Mental Fatigue Assessment for Demanding Maritime Operations,'' \textit{Sensors}, vol. 20, no. 9, article 2588, 2020. DOI: \href{https://doi.org/10.3390/s20092588}{10.3390/s20092588}. Available: \url{https://www.mdpi.com/1424-8220/20/9/2588}
+
+\bibitem{rashid2023stressfusion}
+N. Rashid, T. Mortlock, and M. A. Al Faruque, ``Stress Detection using Context-Aware Sensor Fusion from Wearable Devices,'' arXiv preprint arXiv:2303.08215, 2023. Available: \url{https://arxiv.org/abs/2303.08215}
+
+\bibitem{agostinelli2024ergonomics}
+T. Agostinelli et al., ``Validation of computer vision-based ergonomic risk assessment tools for real manufacturing environments,'' \textit{Scientific Reports}, 2024. Available: \url{https://www.nature.com/articles/s41598-024-79373-4}
+
+\bibitem{makhmudov2024fatigue}
+F. Makhmudov et al., ``Real-Time Fatigue Detection Algorithms Using Machine Learning for Yawning and Eye State,'' \textit{Sensors}, vol. 24, no. 23, article 7810, 2024. Available: \url{https://www.mdpi.com/1424-8220/24/23/7810}
+
+\end{thebibliography}
+
+\end{document}

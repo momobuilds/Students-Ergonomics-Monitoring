@@ -10,7 +10,6 @@ Orchestrates all modules:
 Run modes:
     python main.py                     # Basic mode, fixed thresholds
     python main.py --calibrate         # With 5-second calibration
-
     python main.py --collect-data      # Collect training data for ML
     python main.py --train             # Train both SVM and RF, pick the best
     python main.py --mode ml           # Use ML classifier

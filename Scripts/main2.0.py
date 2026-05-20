@@ -16,7 +16,7 @@ Examples:
 Keyboard controls during monitoring:
     q = quit
     c = recalibrate posture and blinking
-    s = save posture CSV snapshot
+    s = save posture and blinking CSV snapshots
 """
 
 from __future__ import annotations
@@ -164,7 +164,7 @@ def run_posture_calibration(
 ) -> dict | None:
     print("\n[POSTURE CALIBRATION] Sit upright in your normal good posture.")
     print(f"[POSTURE CALIBRATION] Recording for {posture_config.CALIBRATION_DURATION} seconds.")
-    print("[POSTURE CALIBRATION] Press q to skip.\n")
+    print("[POSTURE CALIBRATION] Click the camera window, then press q to skip.\n")
 
     samples = []
     start = time.time()
@@ -227,7 +227,7 @@ def run_blink_calibration(
 ) -> None:
     print("\n[BLINK CALIBRATION] Keep your eyes naturally open and look at the screen.")
     print(f"[BLINK CALIBRATION] Recording for {duration_seconds:.1f} seconds.")
-    print("[BLINK CALIBRATION] Press q to skip.\n")
+    print("[BLINK CALIBRATION] Click the camera window, then press q to skip.\n")
 
     samples: list[float] = []
     start = time.time()
@@ -353,7 +353,7 @@ def draw_combined_overlay(
     good_pct = posture_state.get("good_posture_percentage", 0)
     alerts = posture_state.get("alert_count", 0)
     footer = f"Session: {session:.0f}s | Good posture: {good_pct:.1f}% | Posture alerts: {alerts}"
-    controls = "Q=Quit | C=Calibrate | S=Save CSV"
+    controls = "Q=Quit | C=Calibrate | S=Save CSVs"
     cv2.rectangle(frame, (0, height - 30), (width, height), (0, 0, 0), -1)
     cv2.putText(frame, footer, (10, height - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1)
     cv2.putText(frame, controls, (width - 285, height - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
@@ -504,7 +504,9 @@ def main() -> None:
         print(f"[INFO] Blink mode: {args.blink_mode}")
         if args.collect_blink_data:
             print(f"[INFO] Collecting blinking data with label: {args.blink_label}")
-        print("[INFO] Monitoring started. Press q to quit.\n")
+        print("[INFO] Monitoring started.")
+        print("[INFO] Click the camera window before using keys: q=quit, c=calibrate, s=save CSVs.")
+        print("[INFO] If the terminal is focused, use Ctrl+C to stop.\n")
 
         while True:
             if not extractor.update():
@@ -556,14 +558,20 @@ def main() -> None:
                     posture_analyzer.set_baseline(baseline)
                 run_blink_calibration(extractor, blink_analyzer, args.blink_calibration_seconds)
             elif key == ord("s"):
-                posture_monitor._save_csv_summary()
-                print("[INFO] Posture CSV snapshot saved.")
+                posture_rows = posture_monitor.save_csv_snapshot()
+                blink_rows = blink_monitor.save_csv_snapshot()
+                print(
+                    "[INFO] CSV save requested: "
+                    f"posture frames={posture_rows}, blink rows={blink_rows}."
+                )
 
     except KeyboardInterrupt:
         print("\n[INFO] Interrupted by user.")
     finally:
         if "posture_monitor" in locals():
             posture_monitor.end_session()
+        if "blink_monitor" in locals():
+            blink_monitor.save_csv_snapshot()
         blink_analyzer.close()
         extractor.stop()
         cv2.destroyAllWindows()

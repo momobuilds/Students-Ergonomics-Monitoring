@@ -120,7 +120,7 @@ def main() -> None:
         if args.calibrate:
             run_calibration(analyzer, camera, args.calibration_seconds)
 
-        print("Blinking monitor started. Press q to stop.")
+        print("Blinking monitor started. Press q to stop, s to save CSV snapshot.")
         while camera.isOpened():
             ok, frame = camera.read()
             if not ok:
@@ -137,9 +137,13 @@ def main() -> None:
             draw_monitor_overlay(frame, state, prediction)
             cv2.imshow("Blinking Monitor", frame)
 
-            if cv2.waitKey(1) & 0xFF == ord("q"):
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
                 break
+            if key == ord("s"):
+                monitor.save_csv_snapshot()
     finally:
+        monitor.save_csv_snapshot()
         analyzer.close()
         camera.release()
         cv2.destroyAllWindows()
@@ -147,4 +151,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

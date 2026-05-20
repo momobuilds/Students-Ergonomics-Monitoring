@@ -30,7 +30,8 @@ class BlinkMonitor:
         self.last_blink_timestamp: float | None = None
         self.low_blink_start: float | None = None
         self.high_perclos_start: float | None = None
-        self.last_log_time = 0.0
+        self.last_log_time = time.time()
+        self._csv_buffer: list[dict[str, Any]] = []
 
         self.current_state: dict[str, Any] = {
             "ear": None,
@@ -43,7 +44,7 @@ class BlinkMonitor:
             "low_blink_alert": False,
             "high_perclos_alert": False,
         }
-        self._ensure_csv_header()
+        self._init_csv()
 
     def update(self, analysis: dict[str, Any], timestamp: float | None = None) -> dict[str, Any]:
         now = timestamp or time.time()
@@ -84,15 +85,27 @@ class BlinkMonitor:
             "low_blink_alert": low_blink_alert,
             "high_perclos_alert": high_perclos_alert,
         }
+        self._csv_buffer.append(dict(self.current_state))
 
         if now - self.last_log_time >= config.CSV_LOG_INTERVAL_SECONDS:
-            self._write_csv_row(self.current_state)
+            self.save_csv_snapshot()
             self.last_log_time = now
 
         return self.current_state
 
     def get_current_state(self) -> dict[str, Any]:
         return dict(self.current_state)
+
+    def save_csv_snapshot(self) -> int:
+        """Save all blink states collected since the previous CSV write."""
+        if not self._csv_buffer:
+            return 0
+
+        rows_saved = len(self._csv_buffer)
+        self._write_csv_rows(self._csv_buffer)
+        self._csv_buffer = []
+        print(f"[INFO] Blink CSV snapshot saved: {rows_saved} rows.")
+        return rows_saved
 
     def _track_blink_event(self, is_closed: bool, now: float) -> None:
         if is_closed:
@@ -168,11 +181,9 @@ class BlinkMonitor:
         setattr(self, start_attribute, None)
         return False
 
-    def _ensure_csv_header(self) -> None:
+    def _init_csv(self) -> None:
         self.csv_output_path.parent.mkdir(parents=True, exist_ok=True)
-        if self.csv_output_path.exists():
-            return
-
+        # Start each run with a fresh session log, like the posture monitor.
         with self.csv_output_path.open("w", newline="", encoding="utf-8") as csv_file:
             writer = csv.writer(csv_file)
             writer.writerow(
@@ -188,19 +199,19 @@ class BlinkMonitor:
                 ]
             )
 
-    def _write_csv_row(self, state: dict[str, Any]) -> None:
+    def _write_csv_rows(self, states: list[dict[str, Any]]) -> None:
         with self.csv_output_path.open("a", newline="", encoding="utf-8") as csv_file:
             writer = csv.writer(csv_file)
-            writer.writerow(
-                [
-                    state.get("timestamp"),
-                    state.get("ear"),
-                    state.get("blink_frequency_bpm"),
-                    state.get("perclos"),
-                    state.get("last_inter_blink_interval"),
-                    state.get("mean_inter_blink_interval"),
-                    state.get("low_blink_alert"),
-                    state.get("high_perclos_alert"),
-                ]
-            )
-
+            for state in states:
+                writer.writerow(
+                    [
+                        state.get("timestamp"),
+                        state.get("ear"),
+                        state.get("blink_frequency_bpm"),
+                        state.get("perclos"),
+                        state.get("last_inter_blink_interval"),
+                        state.get("mean_inter_blink_interval"),
+                        state.get("low_blink_alert"),
+                        state.get("high_perclos_alert"),
+                    ]
+                )

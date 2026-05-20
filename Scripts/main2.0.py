@@ -6,12 +6,12 @@ This script uses one webcam stream and evaluates everything computed by:
 - Scripts/Posture/main.py
 
 Examples:
-    python Scripts/main2.0.py
-    python Scripts/main2.0.py --calibrate
-    python Scripts/main2.0.py --posture-mode ml --blink-mode ml
-    python Scripts/main2.0.py --train
-    python Scripts/main2.0.py --collect-blink-data --blink-label Tired
-    python Scripts/main2.0.py --collect-posture-data
+    python main2.0.py                                        # Basic threshold mode
+    python main2.0.py --calibrate                            # Calibrate both
+    python main2.0.py --collect-posture-data                 # Collect posture training data
+    python main2.0.py --collect-blink-data                   # Collect blink training data
+    python main2.0.py --train                                # Train both modules (SVM+RF, auto-pick best)
+    python main2.0.py --posture-mode ml --blink-mode ml      # Use ML for both
 
 Keyboard controls during monitoring:
     q = quit
@@ -144,9 +144,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--collect-blink-data",
         action="store_true",
-        help="Append blinking samples during the live session.",
+        help="Run guided blink data collection for Normal and Tired.",
     )
-    parser.add_argument("--blink-label", default="Normal", help="Label used with --collect-blink-data.")
     return parser.parse_args()
 
 
@@ -244,7 +243,7 @@ def run_blink_calibration(
         if analysis["face_detected"] and analysis["ear"] is not None:
             samples.append(float(analysis["ear"]))
 
-        analyzer.draw_overlay(frame, analysis)
+        # NOTE: do NOT call analyzer.draw_overlay() here — we use our own overlay
         remaining = duration_seconds - (time.time() - start)
         cv2.putText(
             frame,
@@ -315,6 +314,277 @@ def run_posture_data_collection(
     print("\n[POSTURE DATA] Complete. Run with --train-posture to build the model.")
 
 
+def _run_blink_data_collection(
+    extractor: Any,
+    analyzer: Any,
+    monitor: Any,
+    classifier: Any,
+) -> None:
+    """
+    Guided blink data collection — mirrors run_posture_data_collection.
+    Collects 'Normal' then 'Tired' sessions.
+    """
+    import blink_config
+
+    for label in ["Normal", "Tired"]:
+        print(f"\n[BLINK DATA] Get into your '{label}' blinking state.")
+        print(f"[BLINK DATA] Recording for {blink_config.TRAINING_COLLECTION_DURATION}s.")
+        input(f"[BLINK DATA] Press Enter when ready...")
+
+        classifier.start_collection(label)
+        start = time.time()
+
+        while time.time() - start < blink_config.TRAINING_COLLECTION_DURATION:
+            if not extractor.update():
+                continue
+
+            data = extractor.get_current_data()
+            frame = data["frame"]
+
+            if frame is None:
+                continue
+
+            analysis = analyzer.analyze(frame)
+            state = monitor.update(analysis)
+
+            # add_sample expects BlinkMonitor state dict
+            classifier.add_sample(state)
+
+            remaining = blink_config.TRAINING_COLLECTION_DURATION - (time.time() - start)
+            count = classifier.get_collection_count()
+            cv2.putText(
+                frame,
+                f"Collecting blink '{label}': {count} samples ({remaining:.1f}s left)",
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (0, 200, 255),
+                2,
+            )
+            cv2.imshow(WINDOW_NAME, frame)
+
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+
+        saved = classifier.stop_collection()
+        print(f"[BLINK DATA] Saved {saved} samples for '{label}'.")
+
+    print("\n[BLINK DATA] Complete. Run with --train-blink to build the model.")
+
+
+# =============================================================================
+# OVERLAY — all drawing functions
+# =============================================================================
+
+FOOTER_H = 50          # px — two lines of text, readable
+ALERT_LINE_H = 30      # px per alert row
+PANEL_X = 10           # left margin
+PANEL_W = 280          # panel width
+LINE_H = 22            # row height inside panels
+GAP = 8                # vertical gap between the two panels
+FONT_SCALE = 0.45      # metric rows
+HEADER_SCALE = 0.52    # section headers (POSTURE / BLINKING)
+
+COL_WHITE = (255, 255, 255)
+COL_GRAY = (200, 200, 200)
+COL_DIM = (140, 140, 140)
+COL_GREEN = (0, 200, 0)
+COL_RED = (60, 60, 255)       # BGR red-ish
+COL_ALERT_BG = (0, 0, 170)   # dark red background
+COL_CYAN = (220, 220, 100)
+
+
+def _transparent_rect(
+    frame, x1: int, y1: int, x2: int, y2: int,
+    color: tuple = (0, 0, 0), alpha: float = 0.55,
+) -> None:
+    """Draw a semi-transparent filled rectangle."""
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x1, y1), (x2, y2), color, -1)
+    cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+
+
+def _put(frame, text: str, x: int, y: int, scale: float,
+         color: tuple, thickness: int = 1) -> None:
+    """Shorthand for cv2.putText with LINE_AA."""
+    cv2.putText(frame, text, (x, y),
+                cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
+
+
+# ---------------------------------------------------------------------------
+# Left-side panels: POSTURE on top, BLINKING below
+# ---------------------------------------------------------------------------
+
+def _draw_panels(frame, posture_state: dict, blink_state: dict) -> None:
+    """Draw both metric panels stacked on the left."""
+
+    # ── Build posture rows ──────────────────────────────────────────────
+    p_rows: list[tuple[str, tuple]] = []
+
+    status = posture_state.get("status", "Unknown")
+    if status == "Good":
+        sc = COL_GREEN
+    elif status == "Slouching":
+        sc = COL_RED
+    else:
+        sc = COL_GRAY
+    p_rows.append((f"Status: {status}", sc))
+
+    for name, metric in posture_state.get("metrics", {}).items():
+        if metric is None:
+            continue
+        good = metric.get("is_good", True)
+        color = COL_GREEN if good else COL_RED
+        label = name.replace("_", " ").title()
+        val = metric.get("value", "N/A")
+        unit = metric.get("unit", "")
+        p_rows.append((f"  {label}: {val}{unit}", color))
+
+    ml_conf = posture_state.get("ml_confidence")
+    if ml_conf is not None:
+        p_rows.append((f"  ML conf: {ml_conf:.0%}", COL_CYAN))
+
+    # ── Build blink rows ────────────────────────────────────────────────
+    b_rows: list[tuple[str, tuple]] = [
+        (f"  EAR:        {_format_float(blink_state.get('ear'), 3)}", COL_GRAY),
+        (f"  Blink freq: {blink_state.get('blink_frequency_bpm', 0.0):.1f} bpm", COL_GRAY),
+        (f"  PERCLOS:    {blink_state.get('perclos', 0.0) * 100:.1f}%", COL_GRAY),
+        (f"  IBI last:   {_format_seconds(blink_state.get('last_inter_blink_interval'))}", COL_GRAY),
+        (f"  IBI mean:   {_format_seconds(blink_state.get('mean_inter_blink_interval'))}", COL_GRAY),
+        (f"  Blinks/win: {blink_state.get('blink_count_window', 0)}", COL_GRAY),
+    ]
+
+    # ── Compute sizes ───────────────────────────────────────────────────
+    # Each section = 1 header row + N data rows
+    posture_h = LINE_H * (1 + len(p_rows)) + 8
+    blink_h = LINE_H * (1 + len(b_rows)) + 8
+    total_h = posture_h + GAP + blink_h
+
+    # ── Draw background rectangles ──────────────────────────────────────
+    y_top = 8
+    _transparent_rect(frame, PANEL_X - 4, y_top - 4,
+                      PANEL_X + PANEL_W, y_top + posture_h)
+
+    blink_top = y_top + posture_h + GAP
+    _transparent_rect(frame, PANEL_X - 4, blink_top - 4,
+                      PANEL_X + PANEL_W, blink_top + blink_h)
+
+    # ── Draw posture section ────────────────────────────────────────────
+    y = y_top + LINE_H
+    _put(frame, "POSTURE", PANEL_X + 4, y, HEADER_SCALE, COL_WHITE, 2)
+    y += LINE_H
+    for text, color in p_rows:
+        _put(frame, text, PANEL_X + 4, y, FONT_SCALE, color)
+        y += LINE_H
+
+    # ── Draw blinking section ───────────────────────────────────────────
+    y = blink_top + LINE_H
+    _put(frame, "BLINKING", PANEL_X + 4, y, HEADER_SCALE, COL_WHITE, 2)
+    y += LINE_H
+    for text, color in b_rows:
+        _put(frame, text, PANEL_X + 4, y, FONT_SCALE, color)
+        y += LINE_H
+
+
+# ---------------------------------------------------------------------------
+# Alert bar — full-width red bar above footer, describes what's wrong
+# ---------------------------------------------------------------------------
+
+def _build_alerts(posture_state: dict, blink_state: dict) -> list[str]:
+    """Collect human-readable alert messages."""
+    alerts: list[str] = []
+
+    if posture_state.get("alert_active", False):
+        tier = posture_state.get("alert_tier", "")
+        status = posture_state.get("status", "Slouching")
+        if tier == "all_bad":
+            dur = posture_state.get("all_bad_duration", 0)
+            alerts.append(
+                f"POSTURE: all metrics bad for {dur:.0f}s  -  {status}"
+            )
+        else:
+            dur = posture_state.get("bad_posture_duration", 0)
+            alerts.append(
+                f"POSTURE: bad posture for {dur:.0f}s  -  {status}"
+            )
+
+    if blink_state.get("low_blink_alert", False):
+        alerts.append("BLINK: low blink frequency  -  risk of eye strain")
+
+    if blink_state.get("high_perclos_alert", False):
+        pct = blink_state.get("perclos", 0.0) * 100
+        alerts.append(
+            f"BLINK: high eye closure (PERCLOS {pct:.0f}%)  -  fatigue"
+        )
+
+    return alerts
+
+
+def _draw_alerts(frame, alerts: list[str], footer_h: int) -> None:
+    """Draw a red alert block above the footer bar."""
+    if not alerts:
+        return
+
+    h, w = frame.shape[:2]
+    bar_h = ALERT_LINE_H * len(alerts) + 12
+    bar_top = h - footer_h - bar_h
+
+    _transparent_rect(frame, 0, bar_top, w, h - footer_h,
+                      color=COL_ALERT_BG, alpha=0.75)
+
+    # Flash: alternate white / light-red every 0.5 s
+    flash = int(time.time() * 2) % 2 == 0
+    txt_col = COL_WHITE if flash else (180, 200, 255)
+
+    ay = bar_top + ALERT_LINE_H
+    for msg in alerts:
+        display = f"!! {msg} !!"
+        tw = cv2.getTextSize(display, cv2.FONT_HERSHEY_SIMPLEX, 0.56, 2)[0][0]
+        ax = max(10, (w - tw) // 2)
+        _put(frame, display, ax, ay, 0.56, txt_col, 2)
+        ay += ALERT_LINE_H
+
+
+# ---------------------------------------------------------------------------
+# Footer bar — two readable lines at the very bottom
+# ---------------------------------------------------------------------------
+
+def _draw_footer(
+    frame,
+    posture_state: dict,
+    posture_mode: str,
+    blink_mode: str,
+    blink_prediction: str | None,
+) -> None:
+    h, w = frame.shape[:2]
+
+    cv2.rectangle(frame, (0, h - FOOTER_H), (w, h), (0, 0, 0), -1)
+
+    # Line 1: session stats
+    session = posture_state.get("session_duration", 0)
+    good_pct = posture_state.get("good_posture_percentage", 0)
+    alert_count = posture_state.get("alert_count", 0)
+    line1 = (
+        f"Session: {session:.0f}s  |  Good posture: {good_pct:.1f}%  |  "
+        f"Alerts: {alert_count}"
+    )
+    if blink_prediction is not None:
+        line1 += f"  |  Blink ML: {blink_prediction}"
+
+    _put(frame, line1, 10, h - 30, 0.44, COL_WHITE)
+
+    # Line 2: modes + controls
+    line2 = (
+        f"Posture: {posture_mode.upper()}  |  Blink: {blink_mode.upper()}"
+        f"          Q=Quit  C=Calibrate  S=Save CSVs"
+    )
+    _put(frame, line2, 10, h - 10, 0.40, COL_DIM)
+
+
+# ---------------------------------------------------------------------------
+# Main entry — called from the loop
+# ---------------------------------------------------------------------------
+
 def draw_combined_overlay(
     frame,
     posture_state: dict,
@@ -323,96 +593,16 @@ def draw_combined_overlay(
     blink_mode: str,
     blink_prediction: str | None = None,
 ) -> None:
-    height, width = frame.shape[:2]
 
-    posture_status = posture_state.get("status", "Unknown")
-    posture_alert = posture_state.get("alert_active", False)
-    blink_alert = blink_state.get("low_blink_alert", False) or blink_state.get("high_perclos_alert", False)
+    # 1. Left-side metric panels (posture on top, blinking below)
+    _draw_panels(frame, posture_state, blink_state)
 
-    if posture_alert or blink_alert:
-        bar_color = (0, 0, 200)
-    elif posture_status == "Good":
-        bar_color = (0, 160, 0)
-    elif posture_status == "Slouching":
-        bar_color = (0, 165, 255)
-    else:
-        bar_color = (90, 90, 90)
+    # 2. Alert bar (red, full-width, above footer — only when alerts fire)
+    alerts = _build_alerts(posture_state, blink_state)
+    _draw_alerts(frame, alerts, FOOTER_H)
 
-    cv2.rectangle(frame, (0, 0), (width, 68), bar_color, -1)
-    header = f"Posture: {posture_status} | Eyes: {blink_state.get('eye_state', 'Unknown')}"
-    cv2.putText(frame, header, (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-    mode_text = f"Posture mode: {posture_mode.upper()} | Blink mode: {blink_mode.upper()}"
-    if blink_prediction is not None:
-        mode_text += f" | Blink ML: {blink_prediction}"
-    cv2.putText(frame, mode_text, (10, 53), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
-    draw_posture_panel(frame, posture_state, width)
-    draw_blink_panel(frame, blink_state)
-
-    session = posture_state.get("session_duration", 0)
-    good_pct = posture_state.get("good_posture_percentage", 0)
-    alerts = posture_state.get("alert_count", 0)
-    footer = f"Session: {session:.0f}s | Good posture: {good_pct:.1f}% | Posture alerts: {alerts}"
-    controls = "Q=Quit | C=Calibrate | S=Save CSVs"
-    cv2.rectangle(frame, (0, height - 30), (width, height), (0, 0, 0), -1)
-    cv2.putText(frame, footer, (10, height - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1)
-    cv2.putText(frame, controls, (width - 285, height - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
-
-
-def draw_posture_panel(frame, posture_state: dict, width: int) -> None:
-    metrics = posture_state.get("metrics", {})
-    panel_x = max(width - 315, 10)
-    panel_y = 84
-    line_height = 25
-    panel_height = line_height * (len(metrics) + 2)
-
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (panel_x - 10, panel_y - 10), (width - 5, panel_y + panel_height), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.52, frame, 0.48, 0, frame)
-
-    cv2.putText(frame, "POSTURE", (panel_x, panel_y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
-    y = panel_y + line_height
-    for name, metric in metrics.items():
-        if metric is None:
-            continue
-        color = (0, 210, 0) if metric.get("is_good", True) else (0, 0, 255)
-        label = name.replace("_", " ").title()
-        value = metric.get("value", "N/A")
-        unit = metric.get("unit", "")
-        cv2.putText(frame, f"{label}: {value}{unit}", (panel_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
-        y += line_height
-
-
-def draw_blink_panel(frame, blink_state: dict) -> None:
-    x = 20
-    y = 92
-    line_height = 26
-    rows = [
-        "BLINKING",
-        f"EAR: {_format_float(blink_state.get('ear'), 3)}",
-        f"Blink freq: {blink_state.get('blink_frequency_bpm', 0.0):.1f} bpm",
-        f"PERCLOS: {blink_state.get('perclos', 0.0) * 100:.1f}%",
-        f"IBI last: {_format_seconds(blink_state.get('last_inter_blink_interval'))}",
-        f"IBI mean: {_format_seconds(blink_state.get('mean_inter_blink_interval'))}",
-        f"Blinks/window: {blink_state.get('blink_count_window', 0)}",
-    ]
-    if blink_state.get("low_blink_alert"):
-        rows.append("ALERT: low blink frequency")
-    if blink_state.get("high_perclos_alert"):
-        rows.append("ALERT: high eye closure")
-
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (10, y - 18), (315, y + line_height * len(rows)), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.52, frame, 0.48, 0, frame)
-
-    for index, row in enumerate(rows):
-        color = (255, 255, 255)
-        if row.startswith("ALERT"):
-            color = (0, 0, 255)
-        elif index == 0:
-            color = (255, 255, 255)
-        cv2.putText(frame, row, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-        y += line_height
+    # 3. Footer (two lines, black background)
+    _draw_footer(frame, posture_state, posture_mode, blink_mode, blink_prediction)
 
 
 def _format_float(value: float | None, digits: int) -> str:
@@ -428,24 +618,53 @@ def _format_seconds(value: float | None) -> str:
 
 
 def train_and_exit(args: argparse.Namespace) -> bool:
+    """Train models and exit. Prints results clearly to terminal."""
     if not (args.train or args.train_posture or args.train_blink):
         return False
 
     load_training_modules()
 
+    print("\n" + "=" * 70)
+    print("  MODEL TRAINING")
+    print("=" * 70)
+
     if args.train or args.train_posture:
+        print("\n--- POSTURE ---")
         posture_classifier = PostureClassifier()
-        result = posture_classifier.train()
-        if result:
+        p_result = posture_classifier.train()  # trains SVM + RF, picks best
+        if p_result:
             print(
-                f"\n[POSTURE TRAINING] Best model: {result['model_type'].upper()} "
-                f"with {result['accuracy']:.2%} accuracy."
+                f"\n  [POSTURE] Best model: {p_result['model_type'].upper()}"
+                f"  |  Accuracy: {p_result['accuracy']:.2%}"
+                f"  |  Samples: {p_result['n_samples']}"
+                f"  |  Features: {p_result['n_features']}"
             )
+            print(f"  [POSTURE] Confusion matrices saved as PNG.")
+        else:
+            print("  [POSTURE] Training failed — not enough data or labels.")
 
     if args.train or args.train_blink:
+        print("\n--- BLINKING ---")
         blink_classifier = BlinkClassifier()
-        result = blink_classifier.train()
-        print(f"\n[BLINK TRAINING] Complete: {result}")
+        b_result = blink_classifier.train()  # trains SVM + RF, picks best
+        if b_result:
+            print(
+                f"\n  [BLINK] Best model: {b_result['model_type'].upper()}"
+                f"  |  Accuracy: {b_result['accuracy']:.2%}"
+                f"  |  Samples: {b_result.get('n_samples', '?')}"
+            )
+            print(f"  [BLINK] Confusion matrices saved as PNG.")
+        else:
+            print("  [BLINK] Training failed — not enough data or labels.")
+
+    # Summary
+    print("\n" + "=" * 70)
+    if args.train:
+        p_type = p_result['model_type'].upper() if p_result else "NONE"
+        b_type = b_result['model_type'].upper() if b_result else "NONE"
+        print(f"  SUMMARY:  Posture → {p_type}  |  Blink → {b_type}")
+        print(f"  Models saved. Run with --posture-mode ml --blink-mode ml to use them.")
+    print("=" * 70 + "\n")
 
     return True
 
@@ -473,13 +692,18 @@ def main() -> None:
 
     blink_analyzer = BlinkAnalyzer()
     blink_monitor = BlinkMonitor()
-    blink_classifier = BlinkClassifier()
-    if args.blink_mode == "ml":
-        blink_classifier.load()
+    blink_classifier = BlinkClassifier()  # auto-loads saved model in __init__
 
     try:
         if args.collect_posture_data:
             run_posture_data_collection(extractor, posture_analyzer, posture_classifier)
+            return
+
+        # --- Blink data collection mode (guided, mirrors posture collection) ---
+        if args.collect_blink_data:
+            _run_blink_data_collection(
+                extractor, blink_analyzer, blink_monitor, blink_classifier,
+            )
             return
 
         should_calibrate_posture = args.calibrate or args.calibrate_posture
@@ -497,13 +721,16 @@ def main() -> None:
             print("[WARNING] No trained posture model found. Falling back to thresholds.")
             args.posture_mode = "thresholds"
 
+        if args.blink_mode == "ml" and not blink_classifier.is_trained():
+            print("[WARNING] No trained blink model found. Falling back to threshold.")
+            args.blink_mode = "threshold"
+
         posture_monitor = PostureMonitor()
         posture_monitor.start_session()
 
+        # Print active configuration
         print(f"\n[INFO] Posture mode: {args.posture_mode}")
-        print(f"[INFO] Blink mode: {args.blink_mode}")
-        if args.collect_blink_data:
-            print(f"[INFO] Collecting blinking data with label: {args.blink_label}")
+        print(f"[INFO] Blink mode:   {args.blink_mode}")
         print("[INFO] Monitoring started.")
         print("[INFO] Click the camera window before using keys: q=quit, c=calibrate, s=save CSVs.")
         print("[INFO] If the terminal is focused, use Ctrl+C to stop.\n")
@@ -534,10 +761,17 @@ def main() -> None:
 
             blink_analysis = blink_analyzer.analyze(frame)
             blink_state = blink_monitor.update(blink_analysis, timestamp=timestamp)
-            blink_prediction = blink_classifier.predict(blink_state) if args.blink_mode == "ml" else None
 
-            if args.collect_blink_data:
-                blink_classifier.append_sample(blink_state, args.blink_label)
+            # ML predictions
+            blink_prediction: dict | None = None
+            if args.blink_mode == "ml" and blink_classifier.is_trained():
+                blink_prediction = blink_classifier.predict(blink_state)
+
+            # Extract label string for overlay display
+            blink_pred_label: str | None = None
+            if blink_prediction is not None:
+                conf = blink_prediction.get("confidence", 0.0)
+                blink_pred_label = f"{blink_prediction['label']} ({conf:.0%})"
 
             draw_combined_overlay(
                 frame,
@@ -545,7 +779,7 @@ def main() -> None:
                 blink_state,
                 args.posture_mode,
                 args.blink_mode,
-                blink_prediction,
+                blink_pred_label,
             )
             cv2.imshow(WINDOW_NAME, frame)
 

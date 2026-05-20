@@ -60,3 +60,13 @@ The local LLM advisor is an explanation layer. It receives the already-calculate
 ## Why the LLM Comes After Sensor Fusion
 
 The LLM must not replace the deterministic sensor fusion algorithm. Sensor fusion calculates the risk score and classification using fixed, inspectable rules. The LLM comes afterward so it can explain the decision without changing the decision. This makes the prototype easier to validate and safer to extend when real sensors are connected.
+
+## Local LLM Integration
+
+The prototype can connect to a local LLM through Ollama using the `llama3.2:1b` model. Ollama runs on the user's machine at `http://localhost:11434`, and the dashboard calls the local `/api/chat` endpoint without sending data to a cloud API.
+
+The local LLM is placed after the sensor fusion module. It does not calculate risk, change weights, or override the deterministic status. The fusion module first calculates the feature scores, final risk score, status, and reasons. The LLM then explains that result in short, student-friendly language.
+
+The Streamlit dashboard also includes a chat section. The chat receives a compact summary of the currently available dataset, the selected row, and the current fusion result. It can answer questions such as why a risk level is high, what changed over time, what to improve first, or whether the data is simulated.
+
+The chat should only use the available dataset summary. It should not invent sensor values, claim medical certainty, or make a diagnosis. Current data is simulated until the real heart-rate sensor, webcam blink detector, posture detector, and optional temperature patch are integrated.

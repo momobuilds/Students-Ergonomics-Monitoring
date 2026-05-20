@@ -46,7 +46,7 @@ Initial repository structure created on 2026-05-06.
 
 ## Simulated Sensor Fusion Prototype
 
-This prototype provides a complete simulated-data workflow for the ergonomics monitoring system. It generates two hours of minute-level fake sensor readings, applies feature-level and decision-level sensor fusion, explains the result with a local LLM advisor interface, and displays everything in a Streamlit dashboard.
+This prototype provides a complete simulated-data workflow for the ergonomics monitoring system. It generates eight hours of minute-level fake sensor readings, applies feature-level and decision-level sensor fusion, explains the result with a local LLM advisor interface, and displays everything in a Streamlit dashboard.
 
 The project can run without real sensors. The current fake dataset includes:
 
@@ -91,3 +91,24 @@ The final status is `Normal` when the score is below `0.30`, `Warning` when the 
 Later, the simulated CSV will be replaced by live values from the heart-rate wearable, webcam blink detector, posture detector, and optional temperature patch. Teammates should keep the same column names when connecting real sensor modules so `Scripts/SensorFusion/fusion.py` and the dashboard can continue using the same interface.
 
 The local LLM advisor does not calculate or override the risk score. The deterministic fusion algorithm calculates the score and status first, and the advisor only explains that result and gives student-friendly ergonomic recommendations.
+
+## Local LLM Advisor and Chat
+
+The dashboard can use a local Ollama model for advice and chat. The recommended low-hardware model for this prototype is `llama3.2:1b`.
+
+Install and start Ollama locally, then pull the model:
+
+```bash
+ollama serve
+ollama pull llama3.2:1b
+```
+
+Run the Streamlit dashboard:
+
+```bash
+streamlit run Scripts/SensorFusion/dashboard_app.py
+```
+
+In the dashboard sidebar, enable `Use Local LLM with Ollama`, keep the model as `llama3.2:1b`, and keep the host as `http://localhost:11434`.
+
+The chat assistant answers questions using the current simulated dataset, selected row, and deterministic fusion result. It does not send data to the cloud, does not calculate the risk score, and should not make medical diagnoses. If Ollama is not running or the model is unavailable, the dashboard still works and falls back to mock advice.

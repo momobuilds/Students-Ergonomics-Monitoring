@@ -4,9 +4,9 @@ to start with parameters: python Scripts/Blinking/main.py
 with calibration: python Scripts/Blinking/main.py --calibrate 
 ML: python Scripts/Blinking/main.py--mode ml
 
-raccogliere dati: python Scripts/Blinking/main.py --collect-data --label Normal
-raccogliere dati stanco: python Scripts/Blinking/main.py --collect-data --label Tired
-allenare modello: python Scripts/Blinking/main.py --train
+collect data normal case: python Scripts/Blinking/main.py --collect-data --label Normal
+collect data tired case: python Scripts/Blinking/main.py --collect-data --label Tired
+train model : python Scripts/Blinking/main.py --train
 
 """
 

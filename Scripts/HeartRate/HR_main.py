@@ -12,7 +12,10 @@ def HR_Main(mode, port="COM3", duration=60):
 
     elif mode == "M":
 
-        return HR_Measurement()
+        return HR_Measurement(
+            port=port,
+            duration=duration
+        )
 
     else:
 

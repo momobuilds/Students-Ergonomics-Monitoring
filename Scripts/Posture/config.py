@@ -91,7 +91,7 @@ ANY_BAD_TIME_THRESHOLD = 60   # seconds — at least one metric red
 
 # How often to save data to the CSV file (in seconds).
 # The project proposal specifies every 10 minutes for OpenClaw integration.
-CSV_SAVE_INTERVAL = 600  # seconds (10 minutes)
+CSV_SAVE_INTERVAL = 60 # seconds (1 s)
 
 # Duration of the initial calibration phase (in seconds).
 # The user sits upright and the system records their baseline posture.

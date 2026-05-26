@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sys
 import tempfile
 import warnings
@@ -1226,12 +1227,14 @@ def format_metrics_report(
 
     command = (
         "python train_fusion_model.py \\\n"
-        "  --data realistic_synthetic_ergonomics_dataset.csv \\\n"
-        "  --target final_state \\\n"
-        "  --model-out fusion_model.joblib \\\n"
-        "  --metrics-out fusion_metrics.txt \\\n"
-        "  --optimize-for combined_score \\\n"
-        "  --critical-weight 0.35"
+        f"  --data {shlex.quote(str(args.data))} \\\n"
+        f"  --target {shlex.quote(str(args.target))} \\\n"
+        f"  --model-out {shlex.quote(str(args.model_out))} \\\n"
+        f"  --metrics-out {shlex.quote(str(args.metrics_out))} \\\n"
+        f"  --test-size {args.test_size} \\\n"
+        f"  --random-state {args.random_state} \\\n"
+        f"  --optimize-for {args.optimize_for} \\\n"
+        f"  --critical-weight {args.critical_weight}"
     )
 
     threshold = best_candidate["threshold"]

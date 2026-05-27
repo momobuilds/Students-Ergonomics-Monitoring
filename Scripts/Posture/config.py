@@ -89,6 +89,16 @@ CALIBRATION_MARGIN_FORWARD_HEAD_PROXY = 15  # percent deviation from baseline
 ALL_BAD_TIME_THRESHOLD = 30   # seconds — all metrics red
 ANY_BAD_TIME_THRESHOLD = 60   # seconds — at least one metric red
 
+# =============================================================================
+# WINDOW-BASED EVALUATION (every 60 seconds)
+# =============================================================================
+# At the end of each evaluation window, for each parameter we compute the
+# percentage of frames where it exceeded its threshold.
+# If ANY single parameter exceeds BAD_POSTURE_PCT_THRESHOLD → "Bad Posture".
+
+EVALUATION_WINDOW_SECONDS = 60   # length of the evaluation window
+BAD_POSTURE_PCT_THRESHOLD = 60   # percent — if a param is bad >=60% of frames → bad
+
 # How often to save data to the CSV file (in seconds).
 # The project proposal specifies every 10 minutes for OpenClaw integration.
 CSV_SAVE_INTERVAL = 60 # seconds (1 s)
@@ -116,7 +126,11 @@ import os
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "processed", "posture")
 os.makedirs(DATA_DIR, exist_ok=True)
 
+RAW_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "raw", "posture")
+os.makedirs(RAW_DATA_DIR, exist_ok=True)
+
 CSV_OUTPUT_PATH = os.path.join(DATA_DIR, "posture_log.csv")
+RAW_CSV_OUTPUT_PATH = os.path.join(RAW_DATA_DIR, "posture_raw.csv")
 TRAINING_DATA_PATH = os.path.join(DATA_DIR, "training_data.csv")
 MODEL_PATH = os.path.join(DATA_DIR, "posture_model.pkl")
 CALIBRATION_PATH = os.path.join(DATA_DIR, "calibration_baseline.json")

@@ -184,6 +184,12 @@ def draw_overlay(frame, state, mode):
     """
     Draw the posture monitoring overlay on the video frame.
 
+    Shows:
+    - Top bar: real-time frame status (Good / Slouching) + countdown to next eval
+    - Right panel: real-time metric values
+    - Left panel: last 60-second evaluation verdict + per-parameter breakdown
+    - Bottom bar: session stats
+
     Args:
         frame (np.array): The BGR video frame.
         state (dict): Current state from PostureMonitor.
@@ -194,13 +200,12 @@ def draw_overlay(frame, state, mode):
     """
     h, w, _ = frame.shape
     status = state.get("status", "Unknown")
-    alert_active = state.get("alert_active", False)
     metrics = state.get("metrics", {})
+    window_left = state.get("window_seconds_left", 0)
+    last_eval = state.get("last_evaluation", None)
 
     # --- Status bar at top ---
-    if alert_active:
-        bar_color = config.COLOR_BAD
-    elif status == "Good":
+    if status == "Good":
         bar_color = config.COLOR_GOOD
     elif status == "Slouching":
         bar_color = config.COLOR_WARNING
@@ -209,17 +214,8 @@ def draw_overlay(frame, state, mode):
 
     cv2.rectangle(frame, (0, 0), (w, 60), bar_color, -1)
 
-    # Status text
-    status_text = f"STATUS: {status}"
-    if alert_active:
-        alert_tier = state.get("alert_tier", "")
-        bad_dur = state.get("bad_posture_duration", 0)
-        if alert_tier == "all_bad":
-            all_dur = state.get("all_bad_duration", 0)
-            status_text += f" | ALERT! All metrics bad ({all_dur:.0f}s)"
-        else:
-            status_text += f" | ALERT! Bad posture ({bad_dur:.0f}s)"
-
+    # Status text with countdown
+    status_text = f"STATUS: {status} | Next eval: {window_left:.0f}s"
     cv2.putText(
         frame, status_text,
         (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, config.COLOR_TEXT, 2
@@ -232,20 +228,19 @@ def draw_overlay(frame, state, mode):
         (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, config.COLOR_TEXT, 1
     )
 
-    # --- Metrics panel on the right ---
+    # --- Real-time metrics panel (right side) ---
     panel_x = w - 300
     panel_y = 70
     line_height = 25
 
-    # Semi-transparent background
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (panel_x - 10, panel_y - 10),
-                  (w - 5, panel_y + line_height * (len(metrics) + 3)),
+    overlay_img = frame.copy()
+    cv2.rectangle(overlay_img, (panel_x - 10, panel_y - 10),
+                  (w - 5, panel_y + line_height * (len(metrics) + 1)),
                   (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+    cv2.addWeighted(overlay_img, 0.5, frame, 0.5, 0, frame)
 
     cv2.putText(
-        frame, "METRICS:",
+        frame, "REAL-TIME:",
         (panel_x, panel_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, config.COLOR_TEXT, 1
     )
     panel_y += line_height
@@ -253,20 +248,59 @@ def draw_overlay(frame, state, mode):
     for name, metric in metrics.items():
         if metric is None:
             continue
-
         value = metric.get("value", "N/A")
         unit = metric.get("unit", "")
         is_good = metric.get("is_good", True)
         color = config.COLOR_GOOD if is_good else config.COLOR_BAD
-
         display_name = name.replace("_", " ").title()
         text = f"{display_name}: {value}{unit}"
-
         cv2.putText(
             frame, text,
             (panel_x, panel_y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1
         )
         panel_y += line_height
+
+    # --- Last evaluation panel (left side) ---
+    if last_eval is not None:
+        eval_x = 10
+        eval_y = 70
+        verdict = last_eval["verdict"]
+        params = last_eval["params"]
+
+        # Background
+        eval_overlay = frame.copy()
+        eval_h = line_height * (len(params) + 2)
+        cv2.rectangle(eval_overlay, (eval_x - 5, eval_y - 10),
+                      (320, eval_y + eval_h),
+                      (0, 0, 0), -1)
+        cv2.addWeighted(eval_overlay, 0.5, frame, 0.5, 0, frame)
+
+        # Verdict header
+        verdict_color = config.COLOR_BAD if verdict == "Bad Posture" else config.COLOR_GOOD
+        cv2.putText(
+            frame, f"LAST EVAL: {verdict}",
+            (eval_x, eval_y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, verdict_color, 2
+        )
+        eval_y += line_height
+
+        # Per-parameter breakdown
+        param_display = {
+            "shoulder_asymmetry": ("Shoulders", "deg"),
+            "head_lateral_tilt": ("Head Tilt", "deg"),
+            "forward_head_proxy": ("Fwd Head", "%"),
+        }
+
+        for param_name, (label, unit) in param_display.items():
+            p = params.get(param_name)
+            if p is None:
+                continue
+            color = config.COLOR_BAD if p["is_bad"] else config.COLOR_GOOD
+            text = f"{label}: bad {p['bad_pct']:.0f}% | avg {p['avg_value']:.1f}{unit}"
+            cv2.putText(
+                frame, text,
+                (eval_x, eval_y), cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1
+            )
+            eval_y += line_height
 
     # --- Session stats at bottom ---
     session_dur = state.get("session_duration", 0)

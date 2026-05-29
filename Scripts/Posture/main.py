@@ -1,457 +1,210 @@
 """
-main.py — Entry Point for the Posture Monitoring System
+main.py — Posture Feature Extraction from Videos
 
-Orchestrates all modules:
-1. PoseExtractor: captures frames and extracts landmarks
-2. PostureAnalyzer: computes angles and classifies posture
-3. PostureMonitor: manages timing, alerts, and CSV logging
-4. PostureClassifier: (optional) ML-based classification
+Processes all videos in Video/Normal/ and Video/Anomalous/ folders,
+extracts posture features using sliding windows, and saves CSVs.
 
-Run modes:
-    python main.py                     # Basic mode, fixed thresholds
-    python main.py --calibrate         # With 5-second calibration
-    python main.py --collect-data      # Collect training data for ML
-    python main.py --train             # Train both SVM and RF, pick the best
-    python main.py --mode ml           # Use ML classifier
+Usage:
+    python main.py              # Process all videos in both folders
+    python main.py --normal     # Process only Normal videos
+    python main.py --anomalous  # Process only Anomalous videos
 
-Keyboard controls during monitoring:
-    q = quit, c = recalibrate, s = save CSV snapshot
-
-The PoseExtractor exposes the raw frame via get_current_data(), so other
-modules (e.g., blinking detection) can access the same camera feed without
-opening a second VideoCapture.
+Output:
+    data/raw/posture_normal.csv
+    data/raw/posture_anomalous.csv
 """
 
 import argparse
-import cv2
-import json
-import numpy as np
-import time
+import csv
+import os
+import glob
 
 import config
 from pose_extractor import PoseExtractor
 from posture_analyzer import PostureAnalyzer
-from posture_monitor import PostureMonitor
-from classifier import PostureClassifier
+from feature_extractor import FeatureExtractor
 
 
-def parse_arguments():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Posture Monitoring System for Students"
-    )
-    parser.add_argument(
-        "--mode", type=str, choices=["thresholds", "ml"], default="thresholds",
-        help="Classification mode: 'thresholds' (rule-based) or 'ml' (classifier)"
-    )
-    parser.add_argument(
-        "--calibrate", action="store_true",
-        help="Run initial calibration (sit upright for a few seconds)"
-    )
-    parser.add_argument(
-        "--collect-data", action="store_true",
-        help="Enter data collection mode for ML training"
-    )
-    parser.add_argument(
-        "--train", action="store_true",
-        help="Train both SVM and Random Forest, pick the best, then exit"
-    )
-    return parser.parse_args()
-
-
-def run_calibration(extractor, analyzer):
+def find_videos(directory):
     """
-    Run calibration: user sits upright for a few seconds, system records
-    baseline values for all 3 parameters.
+    Find all video files in a directory.
 
     Args:
-        extractor (PoseExtractor): Camera and landmark extractor.
-        analyzer (PostureAnalyzer): Posture analyzer.
+        directory (str): Path to the video folder.
 
     Returns:
-        dict or None: Baseline data.
+        list: Sorted list of video file paths.
     """
-    print(f"\n[CALIBRATION] Please sit upright in your normal good posture.")
-    print(f"[CALIBRATION] Recording baseline for {config.CALIBRATION_DURATION} seconds...")
-    print(f"[CALIBRATION] Press 'q' to skip.\n")
-
-    calibration_samples = []
-    start_time = time.time()
-
-    while time.time() - start_time < config.CALIBRATION_DURATION:
-        if not extractor.update():
-            continue
-
-        data = extractor.get_current_data()
-        frame = data["frame"]
-        landmarks = data["landmarks"]
-
-        if landmarks is not None:
-            sample = analyzer.compute_calibration_data(landmarks)
-            if sample is not None:
-                calibration_samples.append(sample)
-
-        # Show progress
-        if frame is not None:
-            elapsed = time.time() - start_time
-            remaining = config.CALIBRATION_DURATION - elapsed
-            n = len(calibration_samples)
-            cv2.putText(
-                frame,
-                f"CALIBRATING... Sit upright! ({remaining:.1f}s, {n} samples)",
-                (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                config.COLOR_WARNING, 2
-            )
-            cv2.imshow("Posture Monitor", frame)
-
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            print("[CALIBRATION] Skipped.")
-            return None
-
-    if calibration_samples:
-        # Average all samples for each key
-        baseline = {}
-        all_keys = set()
-        for sample in calibration_samples:
-            all_keys.update(sample.keys())
-
-        for key in all_keys:
-            values = [s[key] for s in calibration_samples if key in s]
-            if values:
-                baseline[key] = float(np.mean(values))
-
-        with open(config.CALIBRATION_PATH, "w") as f:
-            json.dump(baseline, f, indent=2)
-
-        print(f"[CALIBRATION] Baseline saved with {len(baseline)} parameters.")
-        return baseline
-    else:
-        print("[CALIBRATION] No data collected.")
-        return None
+    extensions = ("*.mp4", "*.avi", "*.mov", "*.mkv")
+    videos = []
+    for ext in extensions:
+        videos.extend(glob.glob(os.path.join(directory, ext)))
+    videos.sort()
+    return videos
 
 
-def run_data_collection(extractor, analyzer, classifier):
+def process_video(video_path, analyzer, feature_extractor):
     """
-    Guide the user through collecting training data for the ML classifier.
+    Process a single video: extract landmarks, compute values,
+    accumulate in the feature extractor.
 
     Args:
-        extractor (PoseExtractor): Camera and landmark extractor.
-        analyzer (PostureAnalyzer): Posture analyzer.
-        classifier (PostureClassifier): ML classifier.
-    """
-    for label in ["Good", "Slouching"]:
-        print(f"\n[DATA COLLECTION] Get into your '{label}' posture.")
-        print(f"[DATA COLLECTION] Recording for {config.TRAINING_COLLECTION_DURATION} seconds.")
-        input(f"[DATA COLLECTION] Press Enter when ready...")
-
-        classifier.start_collection(label)
-        start_time = time.time()
-
-        while time.time() - start_time < config.TRAINING_COLLECTION_DURATION:
-            if not extractor.update():
-                continue
-
-            data = extractor.get_current_data()
-            landmarks = data["landmarks"]
-
-            if landmarks is not None:
-                features = analyzer.get_feature_vector(landmarks)
-                classifier.add_sample(features)
-
-            # Show progress
-            frame = data["frame"]
-            if frame is not None:
-                elapsed = time.time() - start_time
-                remaining = config.TRAINING_COLLECTION_DURATION - elapsed
-                count = classifier.get_collection_count()
-                cv2.putText(
-                    frame,
-                    f"Collecting '{label}': {count} samples ({remaining:.1f}s left)",
-                    (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                    config.COLOR_WARNING, 2
-                )
-                cv2.imshow("Posture Monitor", frame)
-
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-
-        classifier.stop_collection()
-
-    print("\n[DATA COLLECTION] Complete! Run with --train to build the model.")
-
-
-def draw_overlay(frame, state, mode):
-    """
-    Draw the posture monitoring overlay on the video frame.
-
-    Shows:
-    - Top bar: real-time frame status (Good / Slouching) + countdown to next eval
-    - Right panel: real-time metric values
-    - Left panel: last 60-second evaluation verdict + per-parameter breakdown
-    - Bottom bar: session stats
-
-    Args:
-        frame (np.array): The BGR video frame.
-        state (dict): Current state from PostureMonitor.
-        mode (str): Classification mode.
+        video_path (str): Path to the video file.
+        analyzer (PostureAnalyzer): Posture metric computer.
+        feature_extractor (FeatureExtractor): Sliding window feature computer.
 
     Returns:
-        np.array: Frame with overlay.
+        int: Number of valid frames processed.
     """
-    h, w, _ = frame.shape
-    status = state.get("status", "Unknown")
-    metrics = state.get("metrics", {})
-    window_left = state.get("window_seconds_left", 0)
-    last_eval = state.get("last_evaluation", None)
+    extractor = PoseExtractor(video_path)
 
-    # --- Status bar at top ---
-    if status == "Good":
-        bar_color = config.COLOR_GOOD
-    elif status == "Slouching":
-        bar_color = config.COLOR_WARNING
-    else:
-        bar_color = (100, 100, 100)
+    if not extractor.start():
+        return 0
 
-    cv2.rectangle(frame, (0, 0), (w, 60), bar_color, -1)
+    valid_frames = 0
+    total_frames = 0
 
-    # Status text with countdown
-    status_text = f"STATUS: {status} | Next eval: {window_left:.0f}s"
-    cv2.putText(
-        frame, status_text,
-        (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, config.COLOR_TEXT, 2
-    )
+    for frame_data in extractor:
+        total_frames += 1
+        landmarks = frame_data["landmarks"]
+        timestamp = frame_data["timestamp"]
 
-    # Mode indicator
-    mode_text = f"Mode: {mode.upper()}"
-    cv2.putText(
-        frame, mode_text,
-        (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, config.COLOR_TEXT, 1
-    )
+        values = analyzer.extract_values(landmarks)
 
-    # --- Real-time metrics panel (right side) ---
-    panel_x = w - 300
-    panel_y = 70
-    line_height = 25
+        if values is not None:
+            shoulder_asym, head_tilt, fhp = values
+            feature_extractor.add_sample(timestamp, shoulder_asym, head_tilt, fhp)
+            valid_frames += 1
 
-    overlay_img = frame.copy()
-    cv2.rectangle(overlay_img, (panel_x - 10, panel_y - 10),
-                  (w - 5, panel_y + line_height * (len(metrics) + 1)),
-                  (0, 0, 0), -1)
-    cv2.addWeighted(overlay_img, 0.5, frame, 0.5, 0, frame)
+        # Progress every 500 frames
+        if total_frames % 500 == 0:
+            pct = (total_frames / extractor.total_frames * 100
+                   if extractor.total_frames > 0 else 0)
+            print(f"  Frame {total_frames}/{extractor.total_frames} "
+                  f"({pct:.0f}%) — {valid_frames} valid")
 
-    cv2.putText(
-        frame, "REAL-TIME:",
-        (panel_x, panel_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, config.COLOR_TEXT, 1
-    )
-    panel_y += line_height
+    extractor.stop()
 
-    for name, metric in metrics.items():
-        if metric is None:
+    print(f"  Done: {valid_frames}/{total_frames} valid frames "
+          f"({valid_frames/total_frames*100:.1f}%)")
+
+    return valid_frames
+
+
+def save_csv(rows, output_path):
+    """
+    Save feature rows to a CSV file.
+
+    Args:
+        rows (list of dict): Feature rows from FeatureExtractor.
+        output_path (str): Path to the output CSV.
+    """
+    if not rows:
+        print(f"[WARNING] No rows to save for {output_path}")
+        return
+
+    with open(output_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=config.FEATURE_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    print(f"[INFO] Saved {len(rows)} rows to {output_path}")
+
+
+def process_folder(video_dir, csv_path, label):
+    """
+    Process all videos in a folder and save a single CSV.
+
+    Args:
+        video_dir (str): Path to the video folder.
+        csv_path (str): Path to the output CSV.
+        label (str): Label for logging ("Normal" or "Anomalous").
+    """
+    print(f"\n{'='*60}")
+    print(f"  Processing {label} videos")
+    print(f"  Folder: {video_dir}")
+    print(f"{'='*60}")
+
+    if not os.path.isdir(video_dir):
+        print(f"[WARNING] Folder not found: {video_dir}")
+        print(f"          Create it and add videos, then re-run.")
+        return
+
+    videos = find_videos(video_dir)
+
+    if not videos:
+        print(f"[WARNING] No video files found in {video_dir}")
+        return
+
+    print(f"  Found {len(videos)} video(s)")
+
+    analyzer = PostureAnalyzer()
+    all_rows = []
+
+    for video_path in videos:
+        video_name = os.path.basename(video_path)
+        print(f"\n  --- {video_name} ---")
+
+        feature_ext = FeatureExtractor()
+        valid = process_video(video_path, analyzer, feature_ext)
+
+        if valid == 0:
+            print(f"  [WARNING] No valid frames in {video_name}, skipping.")
             continue
-        value = metric.get("value", "N/A")
-        unit = metric.get("unit", "")
-        is_good = metric.get("is_good", True)
-        color = config.COLOR_GOOD if is_good else config.COLOR_BAD
-        display_name = name.replace("_", " ").title()
-        text = f"{display_name}: {value}{unit}"
-        cv2.putText(
-            frame, text,
-            (panel_x, panel_y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1
-        )
-        panel_y += line_height
 
-    # --- Last evaluation panel (left side) ---
-    if last_eval is not None:
-        eval_x = 10
-        eval_y = 70
-        verdict = last_eval["verdict"]
-        params = last_eval["params"]
+        rows = feature_ext.compute_windows()
+        print(f"  Windows generated: {len(rows)}")
 
-        # Background
-        eval_overlay = frame.copy()
-        eval_h = line_height * (len(params) + 2)
-        cv2.rectangle(eval_overlay, (eval_x - 5, eval_y - 10),
-                      (320, eval_y + eval_h),
-                      (0, 0, 0), -1)
-        cv2.addWeighted(eval_overlay, 0.5, frame, 0.5, 0, frame)
+        # Add video source to each row
+        for row in rows:
+            row["video_source"] = video_name
 
-        # Verdict header
-        verdict_color = config.COLOR_BAD if verdict == "Bad Posture" else config.COLOR_GOOD
-        cv2.putText(
-            frame, f"LAST EVAL: {verdict}",
-            (eval_x, eval_y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, verdict_color, 2
-        )
-        eval_y += line_height
+        all_rows.extend(rows)
 
-        # Per-parameter breakdown
-        param_display = {
-            "shoulder_asymmetry": ("Shoulders", "deg"),
-            "head_lateral_tilt": ("Head Tilt", "deg"),
-            "forward_head_proxy": ("Fwd Head", "%"),
-        }
-
-        for param_name, (label, unit) in param_display.items():
-            p = params.get(param_name)
-            if p is None:
-                continue
-            color = config.COLOR_BAD if p["is_bad"] else config.COLOR_GOOD
-            text = f"{label}: bad {p['bad_pct']:.0f}% | avg {p['avg_value']:.1f}{unit}"
-            cv2.putText(
-                frame, text,
-                (eval_x, eval_y), cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1
-            )
-            eval_y += line_height
-
-    # --- Session stats at bottom ---
-    session_dur = state.get("session_duration", 0)
-    good_pct = state.get("good_posture_percentage", 0)
-    alert_count = state.get("alert_count", 0)
-
-    stats_text = (f"Session: {session_dur:.0f}s | "
-                  f"Good: {good_pct:.1f}% | "
-                  f"Alerts: {alert_count}")
-
-    cv2.rectangle(frame, (0, h - 30), (w, h), (0, 0, 0), -1)
-    cv2.putText(
-        frame, stats_text,
-        (10, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, config.COLOR_TEXT, 1
-    )
-
-    # Controls hint
-    controls = "Q=Quit | C=Calibrate | S=Save CSV"
-    cv2.putText(
-        frame, controls,
-        (w - 280, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1
-    )
-
-    return frame
+    # Save
+    save_csv(all_rows, csv_path)
 
 
 def main():
-    """Main entry point."""
-    args = parse_arguments()
+    parser = argparse.ArgumentParser(
+        description="Extract posture features from videos"
+    )
+    parser.add_argument(
+        "--normal", action="store_true",
+        help="Process only Normal videos"
+    )
+    parser.add_argument(
+        "--anomalous", action="store_true",
+        help="Process only Anomalous videos"
+    )
+    args = parser.parse_args()
+
+    # If neither flag is set, process both
+    do_both = not args.normal and not args.anomalous
 
     print("=" * 60)
-    print("  POSTURE MONITORING SYSTEM")
-    print("  Students Ergonomics Monitoring Project")
+    print("  POSTURE FEATURE EXTRACTION")
+    print(f"  Window: {config.WINDOW_SIZE}s | Step: {config.WINDOW_STEP}s")
+    print(f"  Features: 9 (mean, std, bad_pct × 3 parameters)")
     print("=" * 60)
 
-    # --- Initialize modules ---
-    extractor = PoseExtractor()
+    if do_both or args.normal:
+        process_folder(
+            config.VIDEO_NORMAL_DIR,
+            config.CSV_NORMAL_PATH,
+            "Normal"
+        )
 
-    if not extractor.start():
-        print("[FATAL] Could not start camera. Exiting.")
-        return
+    if do_both or args.anomalous:
+        process_folder(
+            config.VIDEO_ANOMALOUS_DIR,
+            config.CSV_ANOMALOUS_PATH,
+            "Anomalous"
+        )
 
-    analyzer = PostureAnalyzer()
-
-    # Load existing calibration if available
-    try:
-        with open(config.CALIBRATION_PATH, "r") as f:
-            baseline = json.load(f)
-        analyzer.set_baseline(baseline)
-    except FileNotFoundError:
-        pass
-
-    classifier = PostureClassifier()
-
-    # --- Handle special modes ---
-
-    # Train only
-    if args.train:
-        results = classifier.train()  # Trains both SVM and RF, picks the best
-        if results:
-            print(f"\nBest model: {results['model_type'].upper()} "
-                  f"with {results['accuracy']:.2%} accuracy.")
-            print(f"Confusion matrices saved as PNG images.")
-        extractor.stop()
-        return
-
-    # Data collection
-    if args.collect_data:
-        run_data_collection(extractor, analyzer, classifier)
-        extractor.stop()
-        cv2.destroyAllWindows()
-        return
-
-    # Calibration
-    if args.calibrate:
-        baseline = run_calibration(extractor, analyzer)
-        if baseline:
-            analyzer.set_baseline(baseline)
-
-    # Check ML mode
-    if args.mode == "ml" and not classifier.is_trained():
-        print("[WARNING] No trained model found. Falling back to threshold mode.")
-        print("[WARNING] Run with --collect-data and --train first.")
-        args.mode = "thresholds"
-
-    # Start monitoring
-    monitor = PostureMonitor()
-    monitor.start_session()
-
-    print(f"\n[INFO] Mode: {args.mode}")
-    print(f"[INFO] Alert thresholds: all bad = {config.ALL_BAD_TIME_THRESHOLD}s, "
-          f"any bad = {config.ANY_BAD_TIME_THRESHOLD}s")
-    print(f"[INFO] Monitoring started. Press 'q' to quit.\n")
-
-    # --- Main loop ---
-    try:
-        while True:
-            # 1. Capture and extract landmarks
-            if not extractor.update():
-                continue
-
-            data = extractor.get_current_data()
-            frame = data["frame"]
-            landmarks = data["landmarks"]
-
-            if frame is None:
-                continue
-
-            # 2. Draw landmarks
-            extractor.draw_landmarks_on_frame(frame, landmarks)
-
-            # 3. Analyze posture
-            analysis = analyzer.analyze(landmarks)
-
-            # Override with ML prediction if in ML mode
-            if args.mode == "ml" and landmarks is not None:
-                features = analyzer.get_feature_vector(landmarks)
-                prediction = classifier.predict(features)
-                if prediction:
-                    analysis["status"] = prediction["label"]
-                    analysis["ml_confidence"] = prediction["confidence"]
-
-            # 4. Update monitor
-            state = monitor.update(analysis)
-
-            # 5. Draw overlay
-            frame = draw_overlay(frame, state, args.mode)
-
-            # 6. Show
-            cv2.imshow("Posture Monitor", frame)
-
-            # 7. Keyboard input
-            key = cv2.waitKey(1) & 0xFF
-
-            if key == ord("q"):
-                break
-            elif key == ord("c"):
-                baseline = run_calibration(extractor, analyzer)
-                if baseline:
-                    analyzer.set_baseline(baseline)
-            elif key == ord("s"):
-                monitor.save_csv_snapshot()
-
-    except KeyboardInterrupt:
-        print("\n[INFO] Interrupted by user.")
-
-    finally:
-        monitor.end_session()
-        extractor.stop()
-        cv2.destroyAllWindows()
-        print("[INFO] System shut down.")
+    print(f"\n{'='*60}")
+    print("  DONE")
+    print(f"{'='*60}")
 
 
 if __name__ == "__main__":

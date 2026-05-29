@@ -6,7 +6,7 @@ parameters from the frontal camera:
 
 1. Shoulder Asymmetry: angle of shoulder line vs horizontal (degrees)
 2. Head Lateral Tilt: lateral tilt of head relative to shoulders (degrees)
-3. Forward Head Proxy: vertical distance nose-shoulder change (z-based)
+3. Forward Head Proxy: nose-shoulder vertical distance normalized by shoulder width
 
 Returns raw numerical values only — no classification, no thresholds.
 """
@@ -111,13 +111,17 @@ class PostureAnalyzer:
 
     def _compute_forward_head_proxy(self, landmarks):
         """
-        Estimate forward head posture from frontal view using z-depth
-        difference between nose and shoulder midpoint.
+        Estimate forward head posture from frontal view using the vertical
+        distance between nose and shoulder midpoint, normalized by shoulder
+        width. Scale-invariant (independent of camera distance).
+
+        When sitting upright the nose is well above the shoulders → high ratio.
+        When slouching forward the nose drops toward the shoulders → low ratio.
 
         Landmarks: 0 (nose), 11 (left shoulder), 12 (right shoulder).
 
         Returns:
-            float or None: z-depth difference * 100 (proxy value).
+            float or None: Normalized ratio (higher = better posture).
         """
         nose = landmarks[0]
         left_shoulder = landmarks[11]
@@ -127,7 +131,13 @@ class PostureAnalyzer:
                for lm in [nose, left_shoulder, right_shoulder]):
             return None
 
-        shoulder_mid_z = (left_shoulder["z"] + right_shoulder["z"]) / 2
-        z_diff = nose["z"] - shoulder_mid_z
+        shoulder_mid_y = (left_shoulder["y"] + right_shoulder["y"]) / 2
+        shoulder_width = abs(left_shoulder["x"] - right_shoulder["x"])
 
-        return z_diff * 100
+        if shoulder_width < 1e-6:
+            return None
+
+        vertical_dist = shoulder_mid_y - nose["y"]  # positive when nose above shoulders
+        ratio = vertical_dist / shoulder_width
+
+        return ratio

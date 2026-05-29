@@ -82,12 +82,6 @@ class FeatureExtractor:
                   f"than window size ({window_size}s). No windows generated.")
             return []
 
-        thresholds = np.array([
-            config.SHOULDER_ASYMMETRY_THRESHOLD,
-            config.HEAD_LATERAL_TILT_THRESHOLD,
-            config.FORWARD_HEAD_PROXY_THRESHOLD,
-        ])
-
         rows = []
         window_start = 0.0
 
@@ -104,21 +98,24 @@ class FeatureExtractor:
                 continue
 
             # Compute features for each parameter
-            means = np.mean(np.abs(window_values), axis=0)      # 3 values
-            stds = np.std(np.abs(window_values), axis=0)         # 3 values
-            bad_pcts = np.mean(np.abs(window_values) > thresholds, axis=0) * 100  # 3 values
+            # Shoulder and head_tilt: abs value, bad = above threshold
+            # FHP ratio: raw value, bad = below threshold (lower = more slouching)
+
+            shoulder_vals = np.abs(window_values[:, 0])
+            head_tilt_vals = np.abs(window_values[:, 1])
+            fhp_vals = window_values[:, 2]  # no abs — ratio is always positive
 
             row = {
                 "window_start": round(window_start, 1),
-                "p_shoulder_mean": round(float(means[0]), 4),
-                "p_shoulder_std": round(float(stds[0]), 4),
-                "p_shoulder_bad_pct": round(float(bad_pcts[0]), 2),
-                "p_head_tilt_mean": round(float(means[1]), 4),
-                "p_head_tilt_std": round(float(stds[1]), 4),
-                "p_head_tilt_bad_pct": round(float(bad_pcts[1]), 2),
-                "p_fhp_mean": round(float(means[2]), 4),
-                "p_fhp_std": round(float(stds[2]), 4),
-                "p_fhp_bad_pct": round(float(bad_pcts[2]), 2),
+                "p_shoulder_mean": round(float(np.mean(shoulder_vals)), 4),
+                "p_shoulder_std": round(float(np.std(shoulder_vals)), 4),
+                "p_shoulder_bad_pct": round(float(np.mean(shoulder_vals > config.SHOULDER_ASYMMETRY_THRESHOLD) * 100), 2),
+                "p_head_tilt_mean": round(float(np.mean(head_tilt_vals)), 4),
+                "p_head_tilt_std": round(float(np.std(head_tilt_vals)), 4),
+                "p_head_tilt_bad_pct": round(float(np.mean(head_tilt_vals > config.HEAD_LATERAL_TILT_THRESHOLD) * 100), 2),
+                "p_fhp_mean": round(float(np.mean(fhp_vals)), 4),
+                "p_fhp_std": round(float(np.std(fhp_vals)), 4),
+                "p_fhp_bad_pct": round(float(np.mean(fhp_vals < config.FORWARD_HEAD_PROXY_THRESHOLD) * 100), 2),
             }
 
             rows.append(row)

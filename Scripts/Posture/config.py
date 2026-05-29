@@ -1,153 +1,87 @@
 """
-config.py — Configuration file for the Posture Monitoring System
+config.py — Configuration for Posture Feature Extraction
 
-This file contains all configurable parameters for the system:
-- Postural angle thresholds (derived from literature review)
-- Camera settings
-- Calibration margins
-- Timing settings
-- File paths
+Parameters for extracting posture features from pre-recorded videos.
+Sliding window approach: 60-second windows with 10-second step.
 
-All threshold values are backed by scientific literature.
-See literature_review_posture_parameters.md for full references.
+Output: 9 features per window (mean, std, bad_pct for each of 3 parameters).
 """
 
-# =============================================================================
-# CAMERA SETTINGS
-# =============================================================================
-
-# Index of the laptop webcam (usually 0)
-CAMERA_INDEX = 0
-
-# Camera resolution (width, height)
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 480
-
-# Target frames per second for processing
-TARGET_FPS = 15
+import os
 
 # =============================================================================
 # MEDIAPIPE SETTINGS
 # =============================================================================
 
-# Minimum detection confidence for MediaPipe Pose
 MP_MIN_DETECTION_CONFIDENCE = 0.7
-
-# Minimum tracking confidence for MediaPipe Pose
 MP_MIN_TRACKING_CONFIDENCE = 0.7
-
-# Whether to use the static image mode (False = video mode with tracking)
 MP_STATIC_IMAGE_MODE = False
-
-# Model complexity: 0 (lite), 1 (full), 2 (heavy)
-# 1 is a good balance between speed and accuracy
 MP_MODEL_COMPLEXITY = 1
 
 # =============================================================================
-# POSTURAL THRESHOLDS — FRONTAL VIEW
+# SLIDING WINDOW SETTINGS
 # =============================================================================
-# These are the fixed thresholds from literature, used when calibration
-# is NOT active. When calibrated, the system uses baseline + margin instead.
 
-# Shoulder Asymmetry
-# Measured as: angle of the shoulder line vs horizontal.
-# Literature: <=5° is normal, >=7° warrants attention
+# Window duration in seconds
+WINDOW_SIZE = 60
+
+# Step between consecutive windows in seconds
+WINDOW_STEP = 10
+
+# =============================================================================
+# POSTURAL THRESHOLDS (from literature, used to compute bad_pct)
+# =============================================================================
+
+# Shoulder Asymmetry — angle of shoulder line vs horizontal
 # Sources: Scoliometer (ScienceDirect), Hustinawaty 2025
-SHOULDER_ASYMMETRY_THRESHOLD = 7  # degrees — above this = bad posture
+# <=5° normal, >=7° warrants attention
+SHOULDER_ASYMMETRY_THRESHOLD = 7  # degrees
 
-# Head Lateral Tilt
-# Measured as: angle between ear-shoulder midpoints vs vertical, frontal plane.
-# Literature: neutral is -10° to 10°, outside this range is problematic
+# Head Lateral Tilt — ear midpoint to shoulder midpoint vs vertical
 # Sources: BMJ Open 2016 (CUELA norms)
-HEAD_LATERAL_TILT_THRESHOLD = 10  # degrees — above this (absolute) = bad posture
+# Neutral range: -10° to 10°
+HEAD_LATERAL_TILT_THRESHOLD = 10  # degrees
 
-# Forward Head Proxy (Frontal View)
-# Measured as: percentage change in the vertical distance between nose and
-# shoulder midpoint, relative to the calibrated baseline.
-# No absolute clinical threshold exists — this is a relative measure.
-# Sources: PostureCV (GitHub), ungermate
-FORWARD_HEAD_PROXY_THRESHOLD = 15  # percent deviation from baseline
+# Forward Head Proxy — vertical distance nose-shoulder deviation
+# Relative measure, no absolute clinical threshold
+# Sources: PostureCV (GitHub)
+FORWARD_HEAD_PROXY_THRESHOLD = 15  # percent deviation
 
-# =============================================================================
-# CALIBRATION TOLERANCE MARGINS
-# =============================================================================
-# When calibration is active, the threshold for each parameter becomes:
-#   baseline_value + margin
-# These margins define how much deviation from YOUR baseline is acceptable.
-
-CALIBRATION_MARGIN_SHOULDER_ASYMMETRY = 5   # degrees added to your baseline
-CALIBRATION_MARGIN_HEAD_LATERAL_TILT = 7    # degrees added to your baseline
-CALIBRATION_MARGIN_FORWARD_HEAD_PROXY = 15  # percent deviation from baseline
-
-# =============================================================================
-# TIMING SETTINGS
-# =============================================================================
-
-# Two-tier alert system:
-#   - ALL metrics bad → alert after ALL_BAD_TIME_THRESHOLD seconds
-#   - ANY metric bad  → alert after ANY_BAD_TIME_THRESHOLD seconds
-ALL_BAD_TIME_THRESHOLD = 30   # seconds — all metrics red
-ANY_BAD_TIME_THRESHOLD = 60   # seconds — at least one metric red
-
-# =============================================================================
-# WINDOW-BASED EVALUATION (every 60 seconds)
-# =============================================================================
-# At the end of each evaluation window, for each parameter we compute the
-# percentage of frames where it exceeded its threshold.
-# If ANY single parameter exceeds BAD_POSTURE_PCT_THRESHOLD → "Bad Posture".
-
-EVALUATION_WINDOW_SECONDS = 60   # length of the evaluation window
-BAD_POSTURE_PCT_THRESHOLD = 60   # percent — if a param is bad >=60% of frames → bad
-
-# How often to save data to the CSV file (in seconds).
-# The project proposal specifies every 10 minutes for OpenClaw integration.
-CSV_SAVE_INTERVAL = 60 # seconds (1 s)
-
-# Duration of the initial calibration phase (in seconds).
-# The user sits upright and the system records their baseline posture.
-CALIBRATION_DURATION = 5  # seconds
-
-# =============================================================================
-# DATA COLLECTION SETTINGS (for ML classifier training)
-# =============================================================================
-
-# Duration of each data collection phase (good posture / bad posture)
-TRAINING_COLLECTION_DURATION = 60  # seconds per class
-
-# Window size for feature extraction (in frames)
-# At 15 FPS, 15 frames = 1 second window
-FEATURE_WINDOW_SIZE = 15
+# Minimum landmark visibility to consider a frame valid
+MIN_VISIBILITY = 0.5
 
 # =============================================================================
 # FILE PATHS
 # =============================================================================
 
-import os
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "processed", "posture")
-os.makedirs(DATA_DIR, exist_ok=True)
+# Base project directory (Scripts/Posture/../../ = project root)
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-RAW_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "raw", "posture")
+# Video input folders
+VIDEO_NORMAL_DIR = os.path.join(PROJECT_ROOT, "Video", "Normal")
+VIDEO_ANOMALOUS_DIR = os.path.join(PROJECT_ROOT, "Video", "Anomalous")
+
+# CSV output folder and files
+RAW_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "raw")
 os.makedirs(RAW_DATA_DIR, exist_ok=True)
 
-CSV_OUTPUT_PATH = os.path.join(DATA_DIR, "posture_log.csv")
-RAW_CSV_OUTPUT_PATH = os.path.join(RAW_DATA_DIR, "posture_raw.csv")
-TRAINING_DATA_PATH = os.path.join(DATA_DIR, "training_data.csv")
-MODEL_PATH = os.path.join(DATA_DIR, "posture_model.pkl")
-CALIBRATION_PATH = os.path.join(DATA_DIR, "calibration_baseline.json")
+CSV_NORMAL_PATH = os.path.join(RAW_DATA_DIR, "posture_normal.csv")
+CSV_ANOMALOUS_PATH = os.path.join(RAW_DATA_DIR, "posture_anomalous.csv")
 
 # =============================================================================
-# VISUALIZATION SETTINGS
+# CSV COLUMN NAMES
 # =============================================================================
 
-# Colors for OpenCV overlay (BGR format)
-COLOR_GOOD = (0, 200, 0)       # Green
-COLOR_BAD = (0, 0, 200)        # Red
-COLOR_WARNING = (0, 165, 255)  # Orange
-COLOR_TEXT = (255, 255, 255)    # White
-COLOR_LANDMARK = (255, 0, 0)   # Blue
-
-# Font scale for OpenCV text
-FONT_SCALE = 0.6
-
-# Thickness for OpenCV text and lines
-LINE_THICKNESS = 2
+FEATURE_COLUMNS = [
+    "window_start",
+    "video_source",
+    "p_shoulder_mean",
+    "p_shoulder_std",
+    "p_shoulder_bad_pct",
+    "p_head_tilt_mean",
+    "p_head_tilt_std",
+    "p_head_tilt_bad_pct",
+    "p_fhp_mean",
+    "p_fhp_std",
+    "p_fhp_bad_pct",
+]

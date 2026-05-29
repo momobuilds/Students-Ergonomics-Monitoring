@@ -42,10 +42,11 @@ SHOULDER_ASYMMETRY_THRESHOLD = 7  # degrees
 # Neutral range: -10° to 10°
 HEAD_LATERAL_TILT_THRESHOLD = 10  # degrees
 
-# Forward Head Proxy — vertical distance nose-shoulder deviation
-# Relative measure, no absolute clinical threshold
-# Sources: PostureCV (GitHub)
-FORWARD_HEAD_PROXY_THRESHOLD = 15  # percent deviation
+# Forward Head Proxy — nose-shoulder vertical distance / shoulder width
+# Normalized ratio: higher = upright, lower = slouching forward
+# When sitting straight the ratio is typically 0.7–1.2
+# A significant drop indicates forward head posture
+FORWARD_HEAD_PROXY_THRESHOLD = 0.7  # below this = bad posture
 
 # Minimum landmark visibility to consider a frame valid
 MIN_VISIBILITY = 0.5

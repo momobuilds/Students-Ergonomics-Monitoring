@@ -32,12 +32,6 @@ out/
 .next/
 coverage/
 
-# Data outputs
-data/raw/*
-data/processed/*
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-
 # Generated firmware artifacts
 *.bin
 *.elf

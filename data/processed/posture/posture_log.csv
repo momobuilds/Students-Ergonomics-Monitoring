@@ -1,0 +1,2 @@
+timestamp,period_start,period_end,good_posture_pct,avg_shoulder_asymmetry,avg_head_lateral_tilt,avg_forward_head_proxy,alerts_in_period,dominant_status
+2026-05-26 23:33:07,23:32:36,23:33:07,54.5,-3.22,0.76,-12.89,0,Good

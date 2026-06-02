@@ -1,11 +1,11 @@
 import argparse
-from HR_Calibration import HR_Calibration
+from HR_Calibration2 import HR_Calibration2
 from HR_Measurement import HR_Measurement
 
-def HR_Main(mode, port="COM3", duration=60):
+def HR_Main(mode, port="COM3", duration=600):
     if mode == "C":
 
-        return HR_Calibration(
+        return HR_Calibration2(
             port=port,
             duration=duration
         )

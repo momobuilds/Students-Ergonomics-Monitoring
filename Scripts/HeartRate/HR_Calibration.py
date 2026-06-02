@@ -36,7 +36,7 @@ def HR_Calibration(port="COM3", duration = 60):
     plt.legend()
 
     last_draw_time = 0.0
-    min_hr_bpm = 40
+    min_hr_bpm = 30
     min_beat_distance = int(target_fps * 60 / min_hr_bpm)
 
     last_hr = None
@@ -77,8 +77,8 @@ def HR_Calibration(port="COM3", duration = 60):
                         peaks, _ = find_peaks(
                             signal,
                             distance=min_beat_distance,
-                            height=signal.mean() * 0.7,
-                            prominence=signal.std() * 0.5
+                            height=signal.mean() * 0.3,
+                            prominence=signal.std() * 0.2
                         )
 
                         if len(peaks) >= 2:

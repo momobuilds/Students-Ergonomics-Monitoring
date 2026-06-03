@@ -1,0 +1,134 @@
+DATASET SUMMARY
+================================================================================
+normal.csv rows: 218
+sleepy.csv rows: 213
+stress.csv rows: 218
+total rows: 649
+
+Class distribution:
+{'normal': 218, 'stress': 218, 'sleepy': 213}
+
+Column names:
+- normal.csv: ['window_start', 'video_source', 'p_shoulder_mean', 'p_shoulder_std', 'p_shoulder_bad_pct', 'p_head_tilt_mean', 'p_head_tilt_std', 'p_head_tilt_bad_pct', 'p_fhp_mean', 'p_fhp_std', 'p_fhp_bad_pct', 'b_ear_mean', 'b_ear_std', 'b_perclos', 'b_blink_count', 'b_blink_freq', 'b_ibi_mean', 'b_ibi_std', 'HR', 'RMMSD']
+- sleepy.csv: ['window_start', 'video_source', 'p_shoulder_mean', 'p_shoulder_std', 'p_shoulder_bad_pct', 'p_head_tilt_mean', 'p_head_tilt_std', 'p_head_tilt_bad_pct', 'p_fhp_mean', 'p_fhp_std', 'p_fhp_bad_pct', 'b_ear_mean', 'b_ear_std', 'b_perclos', 'b_blink_count', 'b_blink_freq', 'b_ibi_mean', 'b_ibi_std', 'HR', 'RMMSD', 'label']
+- stress.csv: ['window_start', 'video_source', 'p_shoulder_mean', 'p_shoulder_std', 'p_shoulder_bad_pct', 'p_head_tilt_mean', 'p_head_tilt_std', 'p_head_tilt_bad_pct', 'p_fhp_mean', 'p_fhp_std', 'p_fhp_bad_pct', 'b_ear_mean', 'b_ear_std', 'b_perclos', 'b_blink_count', 'b_blink_freq', 'b_ibi_mean', 'b_ibi_std', 'HR', 'RMMSD', 'label']
+
+Selected feature columns:
+p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct, b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std, HR, RMMSD
+RMMSD is the column name in the CSV file; scientifically this refers to RMSSD.
+Excluded from features: video_source, participant/source/name fields, filenames, window_start, label, true_label, original labels, and ID columns.
+
+Missing values in selected features:
+- normal.csv: p_shoulder_mean=0, p_shoulder_std=0, p_shoulder_bad_pct=0, p_head_tilt_mean=0, p_head_tilt_std=0, p_head_tilt_bad_pct=0, p_fhp_mean=0, p_fhp_std=0, p_fhp_bad_pct=0, b_ear_mean=0, b_ear_std=0, b_perclos=0, b_blink_count=0, b_blink_freq=0, b_ibi_mean=0, b_ibi_std=0, HR=0, RMMSD=0
+- sleepy.csv: p_shoulder_mean=0, p_shoulder_std=0, p_shoulder_bad_pct=0, p_head_tilt_mean=0, p_head_tilt_std=0, p_head_tilt_bad_pct=0, p_fhp_mean=0, p_fhp_std=0, p_fhp_bad_pct=0, b_ear_mean=0, b_ear_std=0, b_perclos=0, b_blink_count=0, b_blink_freq=0, b_ibi_mean=0, b_ibi_std=0, HR=0, RMMSD=0
+- stress.csv: p_shoulder_mean=0, p_shoulder_std=0, p_shoulder_bad_pct=0, p_head_tilt_mean=0, p_head_tilt_std=0, p_head_tilt_bad_pct=0, p_fhp_mean=0, p_fhp_std=0, p_fhp_bad_pct=0, b_ear_mean=0, b_ear_std=0, b_perclos=0, b_blink_count=0, b_blink_freq=0, b_ibi_mean=0, b_ibi_std=0, HR=0, RMMSD=0
+
+Possible participant/source columns and unique values:
+- normal.csv video_source: ['Alessia', 'Alvaro', 'Beatrice', 'Mo']
+- sleepy.csv video_source: ['Alessia', 'Alvaro', 'Beatrice', 'Mo']
+- stress.csv video_source: ['Alessia', 'Alvaro', 'Beatrice', 'Mo']
+Group column used for reporting: video_source
+Rows per participant/group per true_label:
+video_source  normal  sleepy  stress  All
+     Alessia      54      55      55  164
+      Alvaro      54      56      55  165
+    Beatrice      55      54      54  163
+          Mo      55      48      54  157
+         All     218     213     218  649
+
+SCIENTIFIC NOTE
+================================================================================
+The unsupervised model grouped samples into clusters without using labels. The known labels were used afterward only to evaluate whether the clusters corresponded to normal, sleepy, and stress states.
+Majority-vote mapped metrics are therefore interpretive evaluation metrics, not evidence that labels were used during clustering.
+
+3-GROUP CLUSTERING RESULTS
+================================================================================
+          method  silhouette  davies_bouldin  calinski_harabasz  adjusted_rand_index  normalized_mutual_info  homogeneity  completeness  v_measure  accuracy  balanced_accuracy  macro_f1  weighted_f1
+         K-Means    0.360739        1.362237         276.812886             0.426546                0.514415     0.491779      0.539235   0.514415  0.778120           0.777663  0.780995     0.780623
+Gaussian Mixture    0.258200        1.653788         209.864589             0.556373                0.542731     0.533262      0.552542   0.542731  0.821263           0.821804  0.814632     0.814719
+   Agglomerative    0.354397        1.355392         266.518370             0.423860                0.549083     0.521244      0.580064   0.549083  0.775039           0.774820  0.778846     0.778260
+
+K-Means cluster vs true_label table:
+true_label  normal  sleepy  stress mapped_label
+cluster                                        
+0                0       4     134       stress
+1              218      56      81       normal
+2                0     153       3       sleepy
+
+Gaussian Mixture cluster vs true_label table:
+true_label  normal  sleepy  stress mapped_label
+cluster                                        
+0                0       4     131       stress
+1                6     190      64       sleepy
+2              212      19      23       normal
+
+Agglomerative cluster vs true_label table:
+true_label  normal  sleepy  stress mapped_label
+cluster                                        
+0              218      54      92       normal
+1                0     159       0       sleepy
+2                0       0     126       stress
+
+K-Means majority-vote mapped classification report:
+              precision    recall  f1-score   support
+
+      normal       0.61      1.00      0.76       218
+      sleepy       0.98      0.72      0.83       213
+      stress       0.97      0.61      0.75       218
+
+    accuracy                           0.78       649
+   macro avg       0.86      0.78      0.78       649
+weighted avg       0.85      0.78      0.78       649
+
+
+Gaussian Mixture majority-vote mapped classification report:
+              precision    recall  f1-score   support
+
+      normal       0.83      0.97      0.90       218
+      sleepy       0.73      0.89      0.80       213
+      stress       0.97      0.60      0.74       218
+
+    accuracy                           0.82       649
+   macro avg       0.85      0.82      0.81       649
+weighted avg       0.85      0.82      0.81       649
+
+
+Agglomerative majority-vote mapped classification report:
+              precision    recall  f1-score   support
+
+      normal       0.60      1.00      0.75       218
+      sleepy       1.00      0.75      0.85       213
+      stress       1.00      0.58      0.73       218
+
+    accuracy                           0.78       649
+   macro avg       0.87      0.77      0.78       649
+weighted avg       0.87      0.78      0.78       649
+
+
+FEATURE ABLATION
+================================================================================
+ feature_group           method  n_features  silhouette  davies_bouldin  calinski_harabasz  adjusted_rand_index  normalized_mutual_info  v_measure  accuracy  balanced_accuracy  macro_f1  weighted_f1
+  posture_only          K-Means           9    0.462387        1.177756         430.811149             0.338845                0.364764   0.364764  0.691834           0.691175  0.675748     0.675668
+  posture_only Gaussian Mixture           9    0.379226        1.404906         307.413572             0.405019                0.412224   0.412224  0.702619           0.703242  0.670968     0.670754
+eye_blink_only          K-Means           7    0.314624        1.184763         341.734564             0.180534                0.229003   0.229003  0.557781           0.553517  0.440293     0.443685
+eye_blink_only Gaussian Mixture           7    0.234008        1.398539         307.227568             0.249323                0.263717   0.263717  0.617874           0.617098  0.617675     0.618650
+   hr_hrv_only          K-Means           2    0.513651        0.709808         959.887939             0.369809                0.439191   0.439191  0.659476           0.662044  0.529756     0.527432
+   hr_hrv_only Gaussian Mixture           2    0.434033        0.701560         737.633217             0.556698                0.604231   0.604231  0.813559           0.814841  0.813217     0.812856
+  all_features          K-Means          18    0.360739        1.362237         276.812886             0.426546                0.514415   0.514415  0.778120           0.777663  0.780995     0.780623
+  all_features Gaussian Mixture          18    0.258200        1.653788         209.864589             0.556373                0.542731   0.542731  0.821263           0.821804  0.814632     0.814719
+
+K-Means: best feature group was all_features (macro F1=0.781, balanced accuracy=0.778, v-measure=0.514); all-feature fusion improved over the best single-modality group. HR/HRV-only macro F1=0.530.
+Gaussian Mixture: best feature group was all_features (macro F1=0.815, balanced accuracy=0.822, v-measure=0.543); all-feature fusion improved over the best single-modality group. HR/HRV-only macro F1=0.813.
+
+FINAL INTERPRETATION
+================================================================================
+The data formed clusters that aligned strongly with the three known states.
+Best clustering method: Gaussian Mixture (macro F1=0.815, balanced accuracy=0.822, v-measure=0.543, silhouette=0.258).
+Classes mixed together after majority-vote mapping: normal->sleepy: 6, sleepy->normal: 19, sleepy->stress: 4, stress->normal: 23, stress->sleepy: 64
+Clusters separated the three states well, but not perfectly.
+HR/RMSSD dominance check: HR/HRV-only macro F1 was 0.530 for K-Means and 0.813 for GMM.
+K-Means: best feature group was all_features (macro F1=0.781, balanced accuracy=0.778, v-measure=0.514); all-feature fusion improved over the best single-modality group. HR/HRV-only macro F1=0.530.
+Gaussian Mixture: best feature group was all_features (macro F1=0.815, balanced accuracy=0.822, v-measure=0.543); all-feature fusion improved over the best single-modality group. HR/HRV-only macro F1=0.813.
+This is proof-of-concept only because the data comes from 4 participants; more participants are needed for stronger generalization claims.
+Saved visualizations: PCA=True, t-SNE=True.
+

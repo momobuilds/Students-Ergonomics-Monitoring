@@ -164,7 +164,7 @@ def HR_Calibration2(port="COM3", duration = 600):
         avg_hr = np.mean(HR)
         avg_rmssd = np.mean(RMSSD)
 
-        print(f"Calibration completed. Mean HR: {avg_hr:.2f} bpm; Mean RMSSD: {avg_rmssd:.2f}")
+        print(f"Calibration completed. Mean HR: {avg_hr:.2f} bpm; Mean RMSSD: {avg_rmssd:.4f}")
 
         df = pd.DataFrame({"HR": HR, "RMSSD": RMSSD})
         df.to_csv("hr_result.csv", index=False)

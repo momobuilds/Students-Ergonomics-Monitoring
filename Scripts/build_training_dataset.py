@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 #!/usr/bin/env python3
 """
-Builds data/raw/training_total.csv by merging the feature modules
-(posture, blinking, heart) for the normal and anomalous classes.
+Builds data/raw/training_<class>.csv by merging the feature modules
+(posture, blinking, heart) for the normal, sleepy and stress classes.
 
 Logic:
-  1. for each class (normal/anomalous) merge the modules HORIZONTALLY,
+  1. for each class (normal/sleepy/stress) merge the modules HORIZONTALLY,
      aligning them on window_start + video_source;
-  2. drop the window_start and video_source columns;
-  3. add a 'label' column (normal / anomalous);
-  4. stack normal + anomalous VERTICALLY.
+  2. keep window_start + video_source as the leading columns (once);
+  3. add a 'label' column with the class name.
 
 The heart_*.csv files may not exist yet: they are skipped with a warning
 and included automatically once they are present in data/raw/.
@@ -23,8 +22,8 @@ from pathlib import Path
 import pandas as pd
 
 MODULES = ["posture", "blinking", "heart"]
-CLASSES = ["normal", "anomalous"]
-KEY_COLS = ["window_start", "video_source"]   # used to align, then dropped
+CLASSES = ["normal", "sleepy", "stress"]
+KEY_COLS = ["window_start", "video_source"]   # used to align the modules
 
 
 def find_project_root(start: Path) -> Path:
@@ -42,6 +41,9 @@ def build_class(cls: str, raw_dir: Path) -> pd.DataFrame:
             print(f"  [warning] missing {path.name} -> skipped")
             continue
         df = pd.read_csv(path)
+        # the per-module 'label' column is re-added below; drop it so the
+        # horizontal merge doesn't produce label_blinking / label_heart junk
+        df = df.drop(columns=["label"], errors="ignore")
         print(f"  {path.name}: {df.shape[0]} rows, {df.shape[1]} columns")
         if merged is None:
             merged = df
@@ -82,6 +84,29 @@ def main():
 
         print(f"File written: {out_path}")
         print(f"Shape:        {df.shape[0]} rows x {df.shape[1]} columns\n")
+
+    # Combined 'anomalous' set: stack sleepy + stress VERTICALLY, reading the
+    # already-built per-class CSVs (no re-processing). Label becomes 'anomalous'.
+    print("Class: anomalous (sleepy + stress)")
+    parts = []
+    for cls in ("sleepy", "stress"):
+        path = raw_dir / f"training_{cls}.csv"
+        if not path.exists():
+            print(f"  [warning] missing {path.name} -> skipped")
+            continue
+        part = pd.read_csv(path)
+        print(f"  {path.name}: {part.shape[0]} rows")
+        parts.append(part)
+
+    if parts:
+        anomalous = pd.concat(parts, ignore_index=True)
+        anomalous["label"] = "anomalous"
+        out_path = raw_dir / "training_anomalous.csv"
+        anomalous.to_csv(out_path, index=False)
+        print(f"File written: {out_path}")
+        print(f"Shape:        {anomalous.shape[0]} rows x {anomalous.shape[1]} columns\n")
+    else:
+        print("  [warning] no sleepy/stress CSV found -> training_anomalous.csv not written\n")
 
     print("Done.")
 

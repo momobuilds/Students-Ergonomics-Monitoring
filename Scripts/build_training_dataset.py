@@ -1,29 +1,51 @@
 #!/usr/bin/env python3
-#!/usr/bin/env python3
 """
-Builds data/raw/training_<class>.csv by merging the feature modules
+Builds the training datasets by merging the feature modules
 (posture, blinking, heart) for the normal, sleepy and stress classes.
 
-Logic:
-  1. for each class (normal/sleepy/stress) merge the modules HORIZONTALLY,
-     aligning them on window_start + video_source;
-  2. keep window_start + video_source as the leading columns (once);
-  3. add a 'label' column with the class name.
+It writes TWO sets of files:
 
-The heart_*.csv files may not exist yet: they are skipped with a warning
-and included automatically once they are present in data/raw/.
+  data/supervised/      (one row per window, WITH a 'label' column)
+      normal.csv  sleepy.csv  stress.csv
+
+  data/unsupervised/    (same features, WITHOUT the label column)
+      normal.csv          -> only normal windows (train an anomaly detector)
+      anomalous.csv       -> sleepy + stress stacked together (for evaluation)
+
+Logic:
+  1. for each class merge the modules HORIZONTALLY, aligning them on
+     window_start + video_source;
+  2. a module is included only if it has BOTH key columns; modules that
+     cannot be aligned (e.g. the current heart_*.csv, which use ';' and have
+     no window_start/video_source) are skipped with a warning;
+  3. the 'video_source' value is simplified to the person's name
+     (Alessia / Alvaro / Beatrice / Mo);
+  4. supervised files keep a single 'label' column at the end;
+     unsupervised files drop it.
 
 Usage:
     python build_training_dataset.py
 (works from any folder: it walks up until it finds data/raw)
 """
 
+import re
 from pathlib import Path
 import pandas as pd
 
 MODULES = ["posture", "blinking", "heart"]
-CLASSES = ["normal", "sleepy", "stress"]
+BASE_CLASSES = ["normal", "sleepy", "stress"]
 KEY_COLS = ["window_start", "video_source"]   # used to align the modules
+
+# Known participants. video_source is reduced to one of these names.
+NAMES = ["Alessia", "Alvaro", "Beatrice", "Mo"]
+
+# Some 'normal' clips don't carry the person's name in the filename, so we map
+# them explicitly. Keys are the lowercased filename stem (without extension).
+# NOTE: verify this mapping is correct for your recordings and flip if needed.
+VIDEO_NAME_OVERRIDES = {
+    "straight_video":   "Alessia",
+    "straight_video_2": "Beatrice",
+}
 
 
 def find_project_root(start: Path) -> Path:
@@ -33,7 +55,23 @@ def find_project_root(start: Path) -> Path:
     raise SystemExit("Could not find a data/raw folder walking up the directories.")
 
 
+def simplify_name(video_source: str) -> str:
+    """Reduce a video_source value to a single participant name."""
+    stem = Path(str(video_source)).stem
+    key = stem.lower()
+    if key in VIDEO_NAME_OVERRIDES:
+        return VIDEO_NAME_OVERRIDES[key]
+    tokens = set(re.split(r"[^a-z0-9]+", key))
+    for name in NAMES:
+        if name.lower() in tokens:
+            return name
+    # no known name found -> keep the original stem so nothing is silently lost
+    print(f"  [warning] could not map video_source '{video_source}' to a name")
+    return stem
+
+
 def build_class(cls: str, raw_dir: Path) -> pd.DataFrame:
+    """Merge the feature modules for one class. Returns features + 'label'."""
     merged = None
     for module in MODULES:
         path = raw_dir / f"{module}_{cls}.csv"
@@ -44,71 +82,67 @@ def build_class(cls: str, raw_dir: Path) -> pd.DataFrame:
         # the per-module 'label' column is re-added below; drop it so the
         # horizontal merge doesn't produce label_blinking / label_heart junk
         df = df.drop(columns=["label"], errors="ignore")
+        if not set(KEY_COLS).issubset(df.columns):
+            print(f"  [warning] {path.name} has no {KEY_COLS} -> cannot align, skipped")
+            continue
         print(f"  {path.name}: {df.shape[0]} rows, {df.shape[1]} columns")
         if merged is None:
             merged = df
         else:
-            keys = [k for k in KEY_COLS if k in df.columns and k in merged.columns]
-            if keys:
-                merged = merged.merge(df, on=keys, how="inner",
-                                      suffixes=("", f"_{module}"))
-            else:
-                # fallback: no common keys -> concatenate side by side by position
-                merged = pd.concat(
-                    [merged.reset_index(drop=True), df.reset_index(drop=True)],
-                    axis=1)
+            merged = merged.merge(df, on=KEY_COLS, how="inner",
+                                  suffixes=("", f"_{module}"))
     if merged is None:
-        raise SystemExit(f"No files found for class '{cls}'.")
+        raise SystemExit(f"No alignable files found for class '{cls}'.")
+
     merged = merged.loc[:, ~merged.columns.duplicated()]
+    merged["video_source"] = merged["video_source"].map(simplify_name)
     merged["label"] = cls
+
+    key_present = [c for c in KEY_COLS if c in merged.columns]
+    feature_cols = [c for c in merged.columns if c not in KEY_COLS and c != "label"]
+    merged = merged[key_present + feature_cols + ["label"]]
     print(f"  -> class '{cls}': {merged.shape[0]} rows after merge\n")
     return merged
+
+
+def write_csv(df: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(path, index=False)
+    print(f"File written: {path}  ({df.shape[0]} rows x {df.shape[1]} columns)")
 
 
 def main():
     root = find_project_root(Path(__file__).resolve().parent)
     raw_dir = root / "data" / "raw"
+    sup_dir = root / "data" / "supervised"
+    uns_dir = root / "data" / "unsupervised"
 
-    for cls in CLASSES:
+    # 1) build every base class once (features + label)
+    by_class = {}
+    for cls in BASE_CLASSES:
         print(f"Class: {cls}")
-        df = build_class(cls, raw_dir)
+        by_class[cls] = build_class(cls, raw_dir)
 
-        key_present = [c for c in KEY_COLS if c in df.columns]
-        other_cols  = [c for c in df.columns if c not in KEY_COLS and c != "label"]
-        cols = key_present + other_cols + ["label"]
-        df = df[cols]
+    # sleepy + stress stacked together (built once, reused below)
+    anomalous = pd.concat(
+        [by_class["sleepy"], by_class["stress"]], ignore_index=True
+    )
 
-        out_path = raw_dir / f"training_{cls}.csv"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(out_path, index=False)
+    # 2) SUPERVISED: keep the label, one file per class
+    print("== Supervised (with label) ==")
+    for cls in BASE_CLASSES:
+        write_csv(by_class[cls], sup_dir / f"{cls}.csv")
+    # combined anomalous class: label becomes 'anomalous' (normal vs anomalous)
+    anomalous_sup = anomalous.assign(label="anomalous")
+    write_csv(anomalous_sup, sup_dir / "anomalous.csv")
+    print()
 
-        print(f"File written: {out_path}")
-        print(f"Shape:        {df.shape[0]} rows x {df.shape[1]} columns\n")
+    # 3) UNSUPERVISED: drop the label
+    print("== Unsupervised (no label) ==")
+    write_csv(by_class["normal"].drop(columns=["label"]), uns_dir / "normal.csv")
+    write_csv(anomalous.assign(label="anomalous"), uns_dir / "anomalous.csv")
 
-    # Combined 'anomalous' set: stack sleepy + stress VERTICALLY, reading the
-    # already-built per-class CSVs (no re-processing). Label becomes 'anomalous'.
-    print("Class: anomalous (sleepy + stress)")
-    parts = []
-    for cls in ("sleepy", "stress"):
-        path = raw_dir / f"training_{cls}.csv"
-        if not path.exists():
-            print(f"  [warning] missing {path.name} -> skipped")
-            continue
-        part = pd.read_csv(path)
-        print(f"  {path.name}: {part.shape[0]} rows")
-        parts.append(part)
-
-    if parts:
-        anomalous = pd.concat(parts, ignore_index=True)
-        anomalous["label"] = "anomalous"
-        out_path = raw_dir / "training_anomalous.csv"
-        anomalous.to_csv(out_path, index=False)
-        print(f"File written: {out_path}")
-        print(f"Shape:        {anomalous.shape[0]} rows x {anomalous.shape[1]} columns\n")
-    else:
-        print("  [warning] no sleepy/stress CSV found -> training_anomalous.csv not written\n")
-
-    print("Done.")
+    print("\nDone.")
 
 
 if __name__ == "__main__":

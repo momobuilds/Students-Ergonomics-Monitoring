@@ -32,9 +32,15 @@ import re
 from pathlib import Path
 import pandas as pd
 
-MODULES = ["posture", "blinking", "heart"]
+# modules that carry window_start + video_source and merge on those keys
+KEYED_MODULES = ["posture", "blinking"]
 BASE_CLASSES = ["normal", "sleepy", "stress"]
 KEY_COLS = ["window_start", "video_source"]   # used to align the modules
+
+# heart_*.csv have no keys: they are ';'-separated, hold HR/RMMSD/Target and a
+# row count that can be slightly larger. They are aligned BY POSITION and any
+# extra rows are trimmed from the bottom. 'Target' (a label) is dropped.
+HEART_DROP_COLS = ["Target"]
 
 # Known participants. video_source is reduced to one of these names.
 NAMES = ["Alessia", "Alvaro", "Beatrice", "Mo"]
@@ -70,10 +76,39 @@ def simplify_name(video_source: str) -> str:
     return stem
 
 
+def find_heart_file(cls: str, raw_dir: Path) -> Path | None:
+    """heart file naming is inconsistent (e.g. Heart_stressed.csv for stress)."""
+    for path in sorted(raw_dir.glob(f"[Hh]eart_{cls}*.csv")):
+        return path
+    return None
+
+
+def attach_heart(merged: pd.DataFrame, cls: str, raw_dir: Path) -> pd.DataFrame:
+    """Align the keyless heart series by position; trim extra rows from bottom."""
+    path = find_heart_file(cls, raw_dir)
+    if path is None:
+        print(f"  [warning] no heart file for '{cls}' -> heart features skipped")
+        return merged
+    heart = pd.read_csv(path, sep=";", encoding="utf-8-sig")
+    heart = heart.drop(columns=HEART_DROP_COLS, errors="ignore")
+    print(f"  {path.name}: {heart.shape[0]} rows, {heart.shape[1]} columns")
+
+    n = min(len(merged), len(heart))
+    if len(heart) != len(merged):
+        print(f"  [info] heart has {len(heart)} rows vs {len(merged)} -> "
+              f"trimming both to {n} from the bottom")
+    merged = pd.concat(
+        [merged.reset_index(drop=True).iloc[:n],
+         heart.reset_index(drop=True).iloc[:n]],
+        axis=1,
+    )
+    return merged
+
+
 def build_class(cls: str, raw_dir: Path) -> pd.DataFrame:
     """Merge the feature modules for one class. Returns features + 'label'."""
     merged = None
-    for module in MODULES:
+    for module in KEYED_MODULES:
         path = raw_dir / f"{module}_{cls}.csv"
         if not path.exists():
             print(f"  [warning] missing {path.name} -> skipped")
@@ -94,6 +129,7 @@ def build_class(cls: str, raw_dir: Path) -> pd.DataFrame:
     if merged is None:
         raise SystemExit(f"No alignable files found for class '{cls}'.")
 
+    merged = attach_heart(merged, cls, raw_dir)
     merged = merged.loc[:, ~merged.columns.duplicated()]
     merged["video_source"] = merged["video_source"].map(simplify_name)
     merged["label"] = cls

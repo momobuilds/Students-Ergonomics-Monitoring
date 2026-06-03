@@ -60,14 +60,16 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 
 # Video input folders
 VIDEO_NORMAL_DIR = os.path.join(PROJECT_ROOT, "Video", "Normal")
-VIDEO_ANOMALOUS_DIR = os.path.join(PROJECT_ROOT, "Video", "Anomalous")
+VIDEO_SLEEPY_DIR  = os.path.join(PROJECT_ROOT, "Video", "Sleepy")
+VIDEO_STRESS_DIR  = os.path.join(PROJECT_ROOT, "Video", "Stress")
 
 # CSV output folder and files
 RAW_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "raw")
 os.makedirs(RAW_DATA_DIR, exist_ok=True)
 
 CSV_NORMAL_PATH = os.path.join(RAW_DATA_DIR, "posture_normal.csv")
-CSV_ANOMALOUS_PATH = os.path.join(RAW_DATA_DIR, "posture_anomalous.csv")
+CSV_SLEEPY_PATH  = os.path.join(RAW_DATA_DIR, "posture_sleepy.csv")
+CSV_STRESS_PATH  = os.path.join(RAW_DATA_DIR, "posture_stress.csv")
 
 # =============================================================================
 # CSV COLUMN NAMES
@@ -85,4 +87,5 @@ FEATURE_COLUMNS = [
     "p_fhp_mean",
     "p_fhp_std",
     "p_fhp_bad_pct",
+    "label",
 ]

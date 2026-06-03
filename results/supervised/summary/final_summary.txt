@@ -1,0 +1,256 @@
+DATASET SUMMARY
+================================================================================
+Group column used: video_source
+Reason: this column is present in all four files, has repeated values, and identifies the 4 participants/sources.
+Note: the file column is named RMMSD; scientifically this HRV measure is usually referred to as RMSSD.
+
+Columns by file:
+- normal.csv (218 rows): ['window_start', 'video_source', 'p_shoulder_mean', 'p_shoulder_std', 'p_shoulder_bad_pct', 'p_head_tilt_mean', 'p_head_tilt_std', 'p_head_tilt_bad_pct', 'p_fhp_mean', 'p_fhp_std', 'p_fhp_bad_pct', 'b_ear_mean', 'b_ear_std', 'b_perclos', 'b_blink_count', 'b_blink_freq', 'b_ibi_mean', 'b_ibi_std', 'HR', 'RMMSD', 'label']
+- anomalous.csv (431 rows): ['window_start', 'video_source', 'p_shoulder_mean', 'p_shoulder_std', 'p_shoulder_bad_pct', 'p_head_tilt_mean', 'p_head_tilt_std', 'p_head_tilt_bad_pct', 'p_fhp_mean', 'p_fhp_std', 'p_fhp_bad_pct', 'b_ear_mean', 'b_ear_std', 'b_perclos', 'b_blink_count', 'b_blink_freq', 'b_ibi_mean', 'b_ibi_std', 'HR', 'RMMSD', 'label']
+- sleepy.csv (213 rows): ['window_start', 'video_source', 'p_shoulder_mean', 'p_shoulder_std', 'p_shoulder_bad_pct', 'p_head_tilt_mean', 'p_head_tilt_std', 'p_head_tilt_bad_pct', 'p_fhp_mean', 'p_fhp_std', 'p_fhp_bad_pct', 'b_ear_mean', 'b_ear_std', 'b_perclos', 'b_blink_count', 'b_blink_freq', 'b_ibi_mean', 'b_ibi_std', 'HR', 'RMMSD', 'label']
+- stress.csv (218 rows): ['window_start', 'video_source', 'p_shoulder_mean', 'p_shoulder_std', 'p_shoulder_bad_pct', 'p_head_tilt_mean', 'p_head_tilt_std', 'p_head_tilt_bad_pct', 'p_fhp_mean', 'p_fhp_std', 'p_fhp_bad_pct', 'b_ear_mean', 'b_ear_std', 'b_perclos', 'b_blink_count', 'b_blink_freq', 'b_ibi_mean', 'b_ibi_std', 'HR', 'RMMSD', 'label']
+
+Possible participant/source columns and unique values:
+- normal.csv video_source: ['Alessia', 'Alvaro', 'Beatrice', 'Mo']
+- anomalous.csv video_source: ['Alessia', 'Alvaro', 'Beatrice', 'Mo']
+- sleepy.csv video_source: ['Alessia', 'Alvaro', 'Beatrice', 'Mo']
+- stress.csv video_source: ['Alessia', 'Alvaro', 'Beatrice', 'Mo']
+
+Rows, labels, groups, and missing values by file:
+- normal.csv rows: 218
+  label distribution: {'normal': 218}
+  video_source distribution: {'Alessia': 54, 'Alvaro': 54, 'Beatrice': 55, 'Mo': 55}
+  missing values: none
+- anomalous.csv rows: 431
+  label distribution: {'anomalous': 431}
+  video_source distribution: {'Alessia': 110, 'Alvaro': 111, 'Beatrice': 108, 'Mo': 102}
+  missing values: none
+- sleepy.csv rows: 213
+  label distribution: {'sleepy': 213}
+  video_source distribution: {'Alessia': 55, 'Alvaro': 56, 'Beatrice': 54, 'Mo': 48}
+  missing values: none
+- stress.csv rows: 218
+  label distribution: {'stress': 218}
+  video_source distribution: {'Alessia': 55, 'Alvaro': 55, 'Beatrice': 54, 'Mo': 54}
+  missing values: none
+
+Missing values in selected numerical features:
+- normal.csv: p_shoulder_mean=0, p_shoulder_std=0, p_shoulder_bad_pct=0, p_head_tilt_mean=0, p_head_tilt_std=0, p_head_tilt_bad_pct=0, p_fhp_mean=0, p_fhp_std=0, p_fhp_bad_pct=0, b_ear_mean=0, b_ear_std=0, b_perclos=0, b_blink_count=0, b_blink_freq=0, b_ibi_mean=0, b_ibi_std=0, HR=0, RMMSD=0
+- anomalous.csv: p_shoulder_mean=0, p_shoulder_std=0, p_shoulder_bad_pct=0, p_head_tilt_mean=0, p_head_tilt_std=0, p_head_tilt_bad_pct=0, p_fhp_mean=0, p_fhp_std=0, p_fhp_bad_pct=0, b_ear_mean=0, b_ear_std=0, b_perclos=0, b_blink_count=0, b_blink_freq=0, b_ibi_mean=0, b_ibi_std=0, HR=0, RMMSD=0
+- sleepy.csv: p_shoulder_mean=0, p_shoulder_std=0, p_shoulder_bad_pct=0, p_head_tilt_mean=0, p_head_tilt_std=0, p_head_tilt_bad_pct=0, p_fhp_mean=0, p_fhp_std=0, p_fhp_bad_pct=0, b_ear_mean=0, b_ear_std=0, b_perclos=0, b_blink_count=0, b_blink_freq=0, b_ibi_mean=0, b_ibi_std=0, HR=0, RMMSD=0
+- stress.csv: p_shoulder_mean=0, p_shoulder_std=0, p_shoulder_bad_pct=0, p_head_tilt_mean=0, p_head_tilt_std=0, p_head_tilt_bad_pct=0, p_fhp_mean=0, p_fhp_std=0, p_fhp_bad_pct=0, b_ear_mean=0, b_ear_std=0, b_perclos=0, b_blink_count=0, b_blink_freq=0, b_ibi_mean=0, b_ibi_std=0, HR=0, RMMSD=0
+
+Selected feature columns:
+p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct, b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std, HR, RMMSD
+
+Excluded identifier/non-feature columns include:
+window_start, video_source, label, target, filename, participant, subject
+
+Rows per group per class - binary task:
+video_source  abnormal  normal  All
+     Alessia       110      54  164
+      Alvaro       111      54  165
+    Beatrice       108      55  163
+          Mo       102      55  157
+         All       431     218  649
+
+Rows per group per class - subtype task:
+video_source  sleepy  stress  All
+     Alessia      55      55  110
+      Alvaro      56      55  111
+    Beatrice      54      54  108
+          Mo      48      54  102
+         All     213     218  431
+
+Rows per group per class - hierarchical final labels:
+video_source  normal  sleepy  stress  All
+     Alessia      54      55      55  164
+      Alvaro      54      56      55  165
+    Beatrice      55      54      54  163
+          Mo      55      48      54  157
+         All     218     213     218  649
+
+Rows per group per class - direct 3-class task:
+video_source  normal  sleepy  stress  All
+     Alessia      54      55      55  164
+      Alvaro      54      56      55  165
+    Beatrice      55      54      54  163
+          Mo      55      48      54  157
+         All     218     213     218  649
+Direct 3-class uses normal.csv + sleepy.csv + stress.csv only; anomalous.csv is excluded to avoid duplicating sleepy/stress rows.
+
+Anomalous.csv validation against sleepy.csv + stress.csv:
+- anomalous_rows: 431
+- sleepy_rows: 213
+- stress_rows: 218
+- sleepy_plus_stress_rows: 431
+- same_columns: True
+- exact_ordered_match_after_relabel: True
+- exact_unordered_match_after_relabel: True
+- anomalous_by_group: {'Alessia': 110, 'Alvaro': 111, 'Beatrice': 108, 'Mo': 102}
+- sleepy_plus_stress_by_group: {'Alessia': 110, 'Alvaro': 111, 'Beatrice': 108, 'Mo': 102}
+
+BINARY: NORMAL VS ABNORMAL
+================================================================================
+Overall model ranking:
+              model  accuracy  balanced_accuracy  macro_f1  weighted_f1  precision_macro  recall_macro
+      Random Forest  0.956857           0.958450  0.952279     0.957130         0.946975      0.958450
+  Gradient Boosting  0.947612           0.948089  0.942054     0.947944         0.936874      0.948089
+                SVM  0.926040           0.942049  0.920660     0.927441         0.909630      0.942049
+Logistic Regression  0.887519           0.915313  0.882030     0.890382         0.874570      0.915313
+
+Per-fold metrics for the selected model:
+ fold heldout_group  accuracy  balanced_accuracy  macro_f1  weighted_f1  precision_macro  recall_macro
+    1       Alessia  1.000000           1.000000  1.000000     1.000000         1.000000      1.000000
+    2        Alvaro  0.951515           0.925926  0.942609     0.950419         0.966387      0.925926
+    3      Beatrice  0.993865           0.995370  0.993170     0.993878         0.991071      0.995370
+    4            Mo  0.878981           0.906863  0.875005     0.881679         0.871622      0.906863
+
+Selected model: Random Forest
+Selection criterion: highest macro F1, then balanced accuracy, then weighted F1 and accuracy.
+Classification report for selected model:
+              precision    recall  f1-score   support
+
+      normal       0.91      0.96      0.94       218
+    abnormal       0.98      0.95      0.97       431
+
+    accuracy                           0.96       649
+   macro avg       0.95      0.96      0.95       649
+weighted avg       0.96      0.96      0.96       649
+
+Confusion matrix for selected model:
+[[210   8]
+ [ 20 411]]
+
+SUBTYPE: SLEEPY VS STRESS
+================================================================================
+Overall model ranking:
+              model  accuracy  balanced_accuracy  macro_f1  weighted_f1  precision_macro  recall_macro
+      Random Forest  1.000000           1.000000  1.000000     1.000000         1.000000      1.000000
+  Gradient Boosting  0.986079           0.986185  0.986079     0.986079         0.986143      0.986185
+Logistic Regression  0.972158           0.972154  0.972154     0.972158         0.972154      0.972154
+                SVM  0.923434           0.923774  0.923407     0.923391         0.924725      0.923774
+
+Per-fold metrics for the selected model:
+ fold heldout_group  accuracy  balanced_accuracy  macro_f1  weighted_f1  precision_macro  recall_macro
+    1       Alessia       1.0                1.0       1.0          1.0              1.0           1.0
+    2        Alvaro       1.0                1.0       1.0          1.0              1.0           1.0
+    3      Beatrice       1.0                1.0       1.0          1.0              1.0           1.0
+    4            Mo       1.0                1.0       1.0          1.0              1.0           1.0
+
+Selected model: Random Forest
+Selection criterion: highest macro F1, then balanced accuracy, then weighted F1 and accuracy.
+Classification report for selected model:
+              precision    recall  f1-score   support
+
+      sleepy       1.00      1.00      1.00       213
+      stress       1.00      1.00      1.00       218
+
+    accuracy                           1.00       431
+   macro avg       1.00      1.00      1.00       431
+weighted avg       1.00      1.00      1.00       431
+
+Confusion matrix for selected model:
+[[213   0]
+ [  0 218]]
+
+HIERARCHICAL: NORMAL, SLEEPY, STRESS
+================================================================================
+Overall model ranking:
+                                     model  accuracy  balanced_accuracy  macro_f1  weighted_f1  precision_macro  recall_macro
+            Random Forest -> Random Forest  0.956857           0.957007  0.957293     0.957074         0.958308      0.957007
+      Random Forest -> Logistic Regression  0.949153           0.949182  0.949648     0.949446         0.950953      0.949182
+        Random Forest -> Gradient Boosting  0.949153           0.949326  0.949396     0.949188         0.950272      0.949326
+        Gradient Boosting -> Random Forest  0.947612           0.947833  0.948156     0.947866         0.949199      0.947833
+    Gradient Boosting -> Gradient Boosting  0.939908           0.940152  0.940237     0.939958         0.941117      0.940152
+  Gradient Boosting -> Logistic Regression  0.938367           0.938443  0.939047     0.938782         0.940553      0.938443
+                      SVM -> Random Forest  0.926040           0.926318  0.926954     0.926538         0.937813      0.926318
+                      Random Forest -> SVM  0.919877           0.919987  0.919491     0.919394         0.920008      0.919987
+                  SVM -> Gradient Boosting  0.918336           0.918637  0.918590     0.918201         0.929479      0.918637
+                SVM -> Logistic Regression  0.916795           0.916965  0.917441     0.917065         0.927273      0.916965
+                  Gradient Boosting -> SVM  0.909091           0.909248  0.908775     0.908615         0.909212      0.909248
+      Logistic Regression -> Random Forest  0.887519           0.887051  0.890489     0.890378         0.916380      0.887051
+                                SVM -> SVM  0.887519           0.887769  0.885641     0.885375         0.895715      0.887769
+  Logistic Regression -> Gradient Boosting  0.879815           0.879370  0.882055     0.881971         0.907069      0.879370
+Logistic Regression -> Logistic Regression  0.879815           0.879226  0.881991     0.881924         0.907468      0.879226
+                Logistic Regression -> SVM  0.850539           0.850031  0.849956     0.849989         0.871862      0.850031
+
+Per-fold metrics for the selected model:
+ fold heldout_group  accuracy  balanced_accuracy  macro_f1  weighted_f1  precision_macro  recall_macro
+    1       Alessia  1.000000           1.000000  1.000000     1.000000         1.000000      1.000000
+    2        Alvaro  0.951515           0.950617  0.950440     0.950872         0.956518      0.950617
+    3      Beatrice  0.993865           0.993827  0.993882     0.993864         0.994048      0.993827
+    4            Mo  0.878981           0.879630  0.882648     0.879634         0.914414      0.879630
+
+Selected model: Random Forest -> Random Forest
+Selection criterion: highest macro F1, then balanced accuracy, then weighted F1 and accuracy.
+Classification report for selected model:
+              precision    recall  f1-score   support
+
+      normal       0.91      0.96      0.94       218
+      sleepy       1.00      0.98      0.99       213
+      stress       0.97      0.93      0.95       218
+
+    accuracy                           0.96       649
+   macro avg       0.96      0.96      0.96       649
+weighted avg       0.96      0.96      0.96       649
+
+Confusion matrix for selected model:
+[[210   1   7]
+ [  5 208   0]
+ [ 15   0 203]]
+
+DIRECT 3-CLASS: NORMAL, SLEEPY, STRESS
+================================================================================
+Overall model ranking:
+              model  accuracy  balanced_accuracy  macro_f1  weighted_f1  precision_macro  recall_macro
+      Random Forest  0.950693           0.950855  0.951070     0.950857         0.952044      0.950855
+Logistic Regression  0.929122           0.929053  0.930300     0.930102         0.940574      0.929053
+  Gradient Boosting  0.921418           0.921982  0.921516     0.920966         0.927804      0.921982
+                SVM  0.895223           0.895845  0.892392     0.891933         0.906169      0.895845
+
+Per-fold metrics for the selected model:
+ fold heldout_group  accuracy  balanced_accuracy  macro_f1  weighted_f1  precision_macro  recall_macro
+    1       Alessia  1.000000           1.000000  1.000000     1.000000         1.000000      1.000000
+    2        Alvaro  0.945455           0.944444  0.944148     0.944646         0.951824      0.944444
+    3      Beatrice  0.993865           0.993827  0.993882     0.993864         0.994048      0.993827
+    4            Mo  0.859873           0.860340  0.861357     0.858839         0.896296      0.860340
+
+Selected model: Random Forest
+Selection criterion: highest macro F1, then balanced accuracy, then weighted F1 and accuracy.
+Classification report for selected model:
+              precision    recall  f1-score   support
+
+      normal       0.91      0.96      0.93       218
+      sleepy       0.99      0.97      0.98       213
+      stress       0.96      0.92      0.94       218
+
+    accuracy                           0.95       649
+   macro avg       0.95      0.95      0.95       649
+weighted avg       0.95      0.95      0.95       649
+
+Confusion matrix for selected model:
+[[209   1   8]
+ [  6 207   0]
+ [ 15   2 201]]
+
+SHORT INTERPRETATION
+================================================================================
+These results are proof-of-concept only. Leave-One-Subject-Out is the right evaluation choice here, but 4 participants is not enough for strong generalization claims.
+Binary normal vs abnormal worked best with Random Forest (macro F1=0.952, balanced accuracy=0.958).
+Sleepy vs stress worked best with Random Forest (macro F1=1.000, balanced accuracy=1.000).
+The full hierarchical system worked best with Random Forest -> Random Forest (macro F1=0.957, balanced accuracy=0.957, weighted F1=0.957).
+The direct 3-class system worked best with Random Forest (macro F1=0.951, balanced accuracy=0.951, weighted F1=0.951).
+
+Hierarchical vs direct 3-class comparison:
+     approach                          model  accuracy  balanced_accuracy  macro_f1  weighted_f1
+ hierarchical Random Forest -> Random Forest  0.956857           0.957007  0.957293     0.957074
+direct_3class                  Random Forest  0.950693           0.950855  0.951070     0.950857
+Based mainly on macro F1, the better approach was: hierarchical.
+Hierarchical class confusions: normal->sleepy: 1, normal->stress: 7, sleepy->normal: 5, stress->normal: 15
+Direct 3-class confusions: normal->sleepy: 1, normal->stress: 8, sleepy->normal: 6, stress->normal: 15, stress->sleepy: 2
+The direct 3-class model did confuse normal with sleepy/stress: normal->sleepy: 1, normal->stress: 8, sleepy->normal: 6, stress->normal: 15
+Fold stability for the selected hierarchical system: macro F1 ranged from 0.883 to 1.000; balanced accuracy ranged from 0.880 to 1.000.
+Fold stability for the selected direct 3-class system: macro F1 ranged from 0.861 to 1.000; balanced accuracy ranged from 0.860 to 1.000.
+More participants are needed before using the model for reliable claims about unseen students or deployment settings.
+

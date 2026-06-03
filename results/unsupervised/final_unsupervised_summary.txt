@@ -1,0 +1,128 @@
+DATASET SUMMARY
+================================================================================
+normal.csv rows: 218
+anomalous.csv rows: 431
+total rows: 649
+
+Column names:
+- normal.csv: ['window_start', 'video_source', 'p_shoulder_mean', 'p_shoulder_std', 'p_shoulder_bad_pct', 'p_head_tilt_mean', 'p_head_tilt_std', 'p_head_tilt_bad_pct', 'p_fhp_mean', 'p_fhp_std', 'p_fhp_bad_pct', 'b_ear_mean', 'b_ear_std', 'b_perclos', 'b_blink_count', 'b_blink_freq', 'b_ibi_mean', 'b_ibi_std', 'HR', 'RMMSD']
+- anomalous.csv: ['window_start', 'video_source', 'p_shoulder_mean', 'p_shoulder_std', 'p_shoulder_bad_pct', 'p_head_tilt_mean', 'p_head_tilt_std', 'p_head_tilt_bad_pct', 'p_fhp_mean', 'p_fhp_std', 'p_fhp_bad_pct', 'b_ear_mean', 'b_ear_std', 'b_perclos', 'b_blink_count', 'b_blink_freq', 'b_ibi_mean', 'b_ibi_std', 'HR', 'RMMSD', 'label']
+
+Selected feature columns:
+p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct, b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std, HR, RMMSD
+RMMSD is the column name in the CSV file; scientifically this refers to RMSSD.
+Excluded from features: video_source, participant/source/name fields, filenames, window_start, true_label, original labels, and ID columns.
+
+Missing values in selected features:
+- normal.csv: p_shoulder_mean=0, p_shoulder_std=0, p_shoulder_bad_pct=0, p_head_tilt_mean=0, p_head_tilt_std=0, p_head_tilt_bad_pct=0, p_fhp_mean=0, p_fhp_std=0, p_fhp_bad_pct=0, b_ear_mean=0, b_ear_std=0, b_perclos=0, b_blink_count=0, b_blink_freq=0, b_ibi_mean=0, b_ibi_std=0, HR=0, RMMSD=0
+- anomalous.csv: p_shoulder_mean=0, p_shoulder_std=0, p_shoulder_bad_pct=0, p_head_tilt_mean=0, p_head_tilt_std=0, p_head_tilt_bad_pct=0, p_fhp_mean=0, p_fhp_std=0, p_fhp_bad_pct=0, b_ear_mean=0, b_ear_std=0, b_perclos=0, b_blink_count=0, b_blink_freq=0, b_ibi_mean=0, b_ibi_std=0, HR=0, RMMSD=0
+
+True label distribution: {'anomalous': 431, 'normal': 218}
+
+Possible participant/source columns and unique values:
+- normal.csv video_source: ['Alessia', 'Alvaro', 'Beatrice', 'Mo']
+- anomalous.csv video_source: ['Alessia', 'Alvaro', 'Beatrice', 'Mo']
+Group column used for reporting: video_source
+Rows per participant/group per true label:
+video_source  anomalous  normal  All
+     Alessia        110      54  164
+      Alvaro        111      54  165
+    Beatrice        108      55  163
+          Mo        102      55  157
+         All        431     218  649
+
+SCIENTIFIC NOTE
+================================================================================
+The model grouped the data without labels, and labels were used only afterward to evaluate whether the clusters corresponded to normal and anomalous states.
+
+CLUSTERING RESULTS
+================================================================================
+          method  silhouette  adjusted_rand_index  normalized_mutual_info  accuracy  balanced_accuracy  macro_f1
+         K-Means    0.344959             0.318015                0.403815  0.782743           0.836427  0.780035
+Gaussian Mixture    0.325558             0.392312                0.447832  0.813559           0.859629  0.809736
+   Agglomerative    0.340090             0.300519                0.393601  0.775039           0.830626  0.772615
+
+K-Means cluster vs true-label table:
+true_label  anomalous  normal mapped_label
+cluster                                   
+0                 290       0    anomalous
+1                 141     218       normal
+
+Gaussian Mixture cluster vs true-label table:
+true_label  anomalous  normal mapped_label
+cluster                                   
+0                 310       0    anomalous
+1                 121     218       normal
+
+Agglomerative cluster vs true-label table:
+true_label  anomalous  normal mapped_label
+cluster                                   
+0                 285       0    anomalous
+1                 146     218       normal
+
+ANOMALY DETECTION RESULTS
+================================================================================
+            method  accuracy  balanced_accuracy  macro_f1  precision_macro  recall_macro
+   IsolationForest  0.983051           0.974771  0.980759         0.987557      0.974771
+       OneClassSVM  0.973806           0.961009  0.970044         0.981027      0.961009
+LocalOutlierFactor  0.986133           0.979358  0.984295         0.989773      0.979358
+
+IsolationForest classification report:
+              precision    recall  f1-score   support
+
+      normal       1.00      0.95      0.97       218
+   anomalous       0.98      1.00      0.99       431
+
+    accuracy                           0.98       649
+   macro avg       0.99      0.97      0.98       649
+weighted avg       0.98      0.98      0.98       649
+
+
+OneClassSVM classification report:
+              precision    recall  f1-score   support
+
+      normal       1.00      0.92      0.96       218
+   anomalous       0.96      1.00      0.98       431
+
+    accuracy                           0.97       649
+   macro avg       0.98      0.96      0.97       649
+weighted avg       0.97      0.97      0.97       649
+
+
+LocalOutlierFactor classification report:
+              precision    recall  f1-score   support
+
+      normal       1.00      0.96      0.98       218
+   anomalous       0.98      1.00      0.99       431
+
+    accuracy                           0.99       649
+   macro avg       0.99      0.98      0.98       649
+weighted avg       0.99      0.99      0.99       649
+
+
+FEATURE ABLATION
+================================================================================
+ feature_group          method  n_features  accuracy  balanced_accuracy  macro_f1  precision_macro  recall_macro  silhouette
+  posture_only         K-Means           9  0.801233           0.850348  0.797846         0.814121      0.850348    0.436871
+  posture_only IsolationForest           9  0.981510           0.973611  0.979035         0.985124      0.973611         NaN
+eye_blink_only         K-Means           7  0.758089           0.814465  0.755861         0.785971      0.814465    0.399122
+eye_blink_only IsolationForest           7  0.893683           0.907485  0.886240         0.876243      0.907485         NaN
+   hr_hrv_only         K-Means           2  0.664099           0.500000  0.399074         0.332049      0.500000    0.538507
+   hr_hrv_only IsolationForest           2  0.919877           0.927207  0.912956         0.903623      0.927207         NaN
+  all_features         K-Means          18  0.782743           0.836427  0.780035         0.803621      0.836427    0.344959
+  all_features IsolationForest          18  0.983051           0.974771  0.980759         0.987557      0.974771         NaN
+
+K-Means: best feature group was posture_only (macro F1=0.798, balanced accuracy=0.850); the best single-modality feature set outperformed all-feature fusion. HR/HRV-only macro F1=0.399.
+IsolationForest: best feature group was all_features (macro F1=0.981, balanced accuracy=0.975); all-feature fusion improved over the best single-modality feature set. HR/HRV-only macro F1=0.913.
+
+FINAL INTERPRETATION
+================================================================================
+Clustering showed strong alignment with normal/anomalous labels.
+Best clustering method: Gaussian Mixture (macro F1=0.810, balanced accuracy=0.860, ARI=0.392, NMI=0.448).
+Best anomaly detection method: LocalOutlierFactor (macro F1=0.984, balanced accuracy=0.979).
+HR/RMSSD dominance check: HR/HRV-only macro F1 was 0.399 for K-Means and 0.913 for Isolation Forest. Compare these with the all-feature and other modality rows in the ablation table.
+K-Means: best feature group was posture_only (macro F1=0.798, balanced accuracy=0.850); the best single-modality feature set outperformed all-feature fusion. HR/HRV-only macro F1=0.399.
+IsolationForest: best feature group was all_features (macro F1=0.981, balanced accuracy=0.975); all-feature fusion improved over the best single-modality feature set. HR/HRV-only macro F1=0.913.
+This is proof-of-concept only because the dataset contains samples from only 4 participants; more participants are needed for stronger generalization claims.
+Saved dimensionality-reduction plots: PCA=True, t-SNE=True, UMAP=False.
+

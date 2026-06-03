@@ -1,0 +1,18 @@
+Selected direct 3-class model: Random Forest
+Selection criterion: highest macro F1, then balanced accuracy, then weighted F1 and accuracy.
+
+Classification report:
+              precision    recall  f1-score   support
+
+      normal       0.91      0.96      0.93       218
+      sleepy       0.99      0.97      0.98       213
+      stress       0.96      0.92      0.94       218
+
+    accuracy                           0.95       649
+   macro avg       0.95      0.95      0.95       649
+weighted avg       0.95      0.95      0.95       649
+
+Confusion matrix:
+[[209   1   8]
+ [  6 207   0]
+ [ 15   2 201]]

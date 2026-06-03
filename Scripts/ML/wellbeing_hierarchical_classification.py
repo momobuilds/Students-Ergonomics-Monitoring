@@ -1,0 +1,1331 @@
+#!/usr/bin/env python3
+"""Leave-one-subject-out wellbeing classification pipeline.
+
+This script evaluates:
+1. Binary classification: normal vs abnormal.
+2. Abnormal subtype classification: sleepy vs stress.
+3. End-to-end hierarchical classification: normal, sleepy, stress.
+4. Direct 3-class classification: normal vs sleepy vs stress.
+
+The participant/source column is inferred from the CSV schemas, with
+``video_source`` preferred when no explicit participant column is present.
+"""
+
+from __future__ import annotations
+
+import argparse
+import itertools
+import os
+from collections import OrderedDict
+from pathlib import Path
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+
+import numpy as np
+import pandas as pd
+from sklearn.base import clone
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    classification_report,
+    confusion_matrix,
+    f1_score,
+    precision_recall_fscore_support,
+    precision_score,
+    recall_score,
+)
+from sklearn.model_selection import LeaveOneGroupOut
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
+
+
+RANDOM_STATE = 42
+
+FILES = OrderedDict(
+    [
+        ("normal", "normal.csv"),
+        ("anomalous", "anomalous.csv"),
+        ("sleepy", "sleepy.csv"),
+        ("stress", "stress.csv"),
+    ]
+)
+
+FEATURE_COLUMNS = [
+    "p_shoulder_mean",
+    "p_shoulder_std",
+    "p_shoulder_bad_pct",
+    "p_head_tilt_mean",
+    "p_head_tilt_std",
+    "p_head_tilt_bad_pct",
+    "p_fhp_mean",
+    "p_fhp_std",
+    "p_fhp_bad_pct",
+    "b_ear_mean",
+    "b_ear_std",
+    "b_perclos",
+    "b_blink_count",
+    "b_blink_freq",
+    "b_ibi_mean",
+    "b_ibi_std",
+    "HR",
+    "RMMSD",
+]
+
+IDENTIFIER_HINTS = [
+    "participant",
+    "subject",
+    "person",
+    "video_source",
+    "source",
+    "session",
+    "filename",
+    "file",
+    "name",
+    "user",
+]
+
+GROUP_PRIORITY = [
+    "participant",
+    "subject",
+    "person",
+    "video_source",
+    "source",
+    "session",
+    "filename",
+    "file",
+    "name",
+    "user",
+]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Supervised wellbeing classification with leave-one-subject-out CV."
+    )
+    parser.add_argument(
+        "--data-dir",
+        default=".",
+        type=Path,
+        help=(
+            "Directory containing the four CSV files, or a project root containing "
+            "data/supervised. Default: ."
+        ),
+    )
+    parser.add_argument(
+        "--results-dir",
+        default=Path("results"),
+        type=Path,
+        help="Directory for CSV, PNG, and summary outputs. Default: results",
+    )
+    return parser.parse_args()
+
+
+def prepare_results_dirs(results_dir: Path) -> Dict[str, Path]:
+    """Create and return organized output directories."""
+    result_dirs = {
+        "root": results_dir,
+        "binary": results_dir / "binary",
+        "subtype": results_dir / "subtype",
+        "hierarchical": results_dir / "hierarchical",
+        "direct_3class": results_dir / "direct_3class",
+        "comparison": results_dir / "comparison",
+        "summary": results_dir / "summary",
+    }
+    for path in result_dirs.values():
+        path.mkdir(parents=True, exist_ok=True)
+    return result_dirs
+
+
+def resolve_csv_dir(data_dir: Path) -> Path:
+    """Resolve either a direct CSV directory or a project root."""
+    data_dir = data_dir.expanduser().resolve()
+    direct = all((data_dir / filename).exists() for filename in FILES.values())
+    if direct:
+        return data_dir
+
+    supervised = data_dir / "data" / "supervised"
+    nested = all((supervised / filename).exists() for filename in FILES.values())
+    if nested:
+        return supervised
+
+    expected = ", ".join(FILES.values())
+    raise FileNotFoundError(
+        f"Could not find {expected} in {data_dir} or {supervised}."
+    )
+
+
+def load_datasets(csv_dir: Path) -> Dict[str, pd.DataFrame]:
+    datasets = {}
+    for name, filename in FILES.items():
+        datasets[name] = pd.read_csv(csv_dir / filename)
+    return datasets
+
+
+def coerce_feature_columns(
+    datasets: Mapping[str, pd.DataFrame], features: Sequence[str]
+) -> Dict[str, pd.DataFrame]:
+    """Return copies with feature columns coerced to numeric values."""
+    coerced = {}
+    for name, df in datasets.items():
+        converted = df.copy()
+        for feature in features:
+            converted[feature] = pd.to_numeric(converted[feature], errors="coerce")
+        coerced[name] = converted
+    return coerced
+
+
+def validate_features(datasets: Mapping[str, pd.DataFrame]) -> List[str]:
+    missing_by_file = {}
+    for name, df in datasets.items():
+        missing = [feature for feature in FEATURE_COLUMNS if feature not in df.columns]
+        if missing:
+            missing_by_file[name] = missing
+
+    if not missing_by_file:
+        return FEATURE_COLUMNS
+
+    # Support the scientifically correct spelling if a future file uses it.
+    can_use_rmssd = all(
+        "RMMSD" in missing and "RMSSD" in datasets[name].columns
+        for name, missing in missing_by_file.items()
+    )
+    if can_use_rmssd:
+        return ["RMSSD" if feature == "RMMSD" else feature for feature in FEATURE_COLUMNS]
+
+    details = "; ".join(
+        f"{name}: {', '.join(missing)}" for name, missing in missing_by_file.items()
+    )
+    raise ValueError(f"Missing required feature columns: {details}")
+
+
+def candidate_group_columns(df: pd.DataFrame) -> List[str]:
+    candidates = []
+    for column in df.columns:
+        lowered = column.lower()
+        if any(hint in lowered for hint in IDENTIFIER_HINTS):
+            candidates.append(column)
+    return candidates
+
+
+def inspect_group_candidates(
+    datasets: Mapping[str, pd.DataFrame]
+) -> Dict[str, Dict[str, List[object]]]:
+    inspection: Dict[str, Dict[str, List[object]]] = {}
+    for name, df in datasets.items():
+        inspection[name] = {}
+        for column in candidate_group_columns(df):
+            values = sorted(df[column].dropna().astype(str).unique().tolist())
+            inspection[name][column] = values
+    return inspection
+
+
+def _column_is_group_like(datasets: Mapping[str, pd.DataFrame], column: str) -> bool:
+    values = []
+    for df in datasets.values():
+        if column not in df.columns:
+            return False
+        values.extend(df[column].dropna().astype(str).tolist())
+    unique_values = set(values)
+    if len(unique_values) < 2:
+        return False
+    # A group column should identify repeated sources, not individual rows.
+    return len(unique_values) <= max(50, int(len(values) * 0.5))
+
+
+def infer_group_column(datasets: Mapping[str, pd.DataFrame]) -> str:
+    all_columns = set.intersection(*(set(df.columns) for df in datasets.values()))
+    lower_to_actual = {column.lower(): column for column in all_columns}
+
+    for preferred in GROUP_PRIORITY:
+        if preferred in lower_to_actual:
+            actual = lower_to_actual[preferred]
+            if _column_is_group_like(datasets, actual):
+                return actual
+
+    candidate_columns = sorted(
+        column
+        for column in all_columns
+        if any(hint in column.lower() for hint in IDENTIFIER_HINTS)
+    )
+    for column in candidate_columns:
+        if _column_is_group_like(datasets, column):
+            return column
+
+    raise ValueError(
+        "Could not infer a clean participant/source column. "
+        "Please add or specify a participant, subject, video_source, source, "
+        "session, or filename column."
+    )
+
+
+def model_factories(random_state: int = RANDOM_STATE) -> OrderedDict[str, Pipeline]:
+    return OrderedDict(
+        [
+            (
+                "Logistic Regression",
+                Pipeline(
+                    [
+                        ("imputer", SimpleImputer(strategy="median")),
+                        ("scaler", StandardScaler()),
+                        (
+                            "classifier",
+                            LogisticRegression(
+                                max_iter=5000,
+                                class_weight="balanced",
+                                random_state=random_state,
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "SVM",
+                Pipeline(
+                    [
+                        ("imputer", SimpleImputer(strategy="median")),
+                        ("scaler", StandardScaler()),
+                        (
+                            "classifier",
+                            SVC(
+                                kernel="rbf",
+                                C=1.0,
+                                gamma="scale",
+                                class_weight="balanced",
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "Random Forest",
+                Pipeline(
+                    [
+                        ("imputer", SimpleImputer(strategy="median")),
+                        (
+                            "classifier",
+                            RandomForestClassifier(
+                                n_estimators=500,
+                                random_state=random_state,
+                                class_weight="balanced",
+                                n_jobs=-1,
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+            (
+                "Gradient Boosting",
+                Pipeline(
+                    [
+                        ("imputer", SimpleImputer(strategy="median")),
+                        (
+                            "classifier",
+                            GradientBoostingClassifier(random_state=random_state),
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+
+
+def build_binary_dataset(
+    datasets: Mapping[str, pd.DataFrame], group_col: str
+) -> pd.DataFrame:
+    normal = datasets["normal"].copy()
+    normal["target"] = "normal"
+    anomalous = datasets["anomalous"].copy()
+    anomalous["target"] = "abnormal"
+    combined = pd.concat([normal, anomalous], ignore_index=True)
+    return combined.dropna(subset=[group_col]).reset_index(drop=True)
+
+
+def build_subtype_dataset(
+    datasets: Mapping[str, pd.DataFrame], group_col: str
+) -> pd.DataFrame:
+    sleepy = datasets["sleepy"].copy()
+    sleepy["target"] = "sleepy"
+    stress = datasets["stress"].copy()
+    stress["target"] = "stress"
+    combined = pd.concat([sleepy, stress], ignore_index=True)
+    return combined.dropna(subset=[group_col]).reset_index(drop=True)
+
+
+def build_hierarchical_test_dataset(
+    datasets: Mapping[str, pd.DataFrame], group_col: str
+) -> pd.DataFrame:
+    normal = datasets["normal"].copy()
+    normal["target"] = "normal"
+    sleepy = datasets["sleepy"].copy()
+    sleepy["target"] = "sleepy"
+    stress = datasets["stress"].copy()
+    stress["target"] = "stress"
+    combined = pd.concat([normal, sleepy, stress], ignore_index=True)
+    return combined.dropna(subset=[group_col]).reset_index(drop=True)
+
+
+def build_direct_3class_dataset(
+    datasets: Mapping[str, pd.DataFrame], group_col: str
+) -> pd.DataFrame:
+    """Build direct normal/sleepy/stress data without anomalous.csv duplicates."""
+    return build_hierarchical_test_dataset(datasets, group_col)
+
+
+def safe_label(label: str) -> str:
+    return (
+        str(label)
+        .replace(" ", "_")
+        .replace("/", "_")
+        .replace("-", "_")
+        .replace(".", "_")
+        .lower()
+    )
+
+
+def compute_metrics(
+    y_true: Sequence[str], y_pred: Sequence[str], labels: Sequence[str]
+) -> Dict[str, float]:
+    metrics: Dict[str, float] = {
+        "accuracy": accuracy_score(y_true, y_pred),
+        "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
+        "macro_f1": f1_score(
+            y_true, y_pred, labels=labels, average="macro", zero_division=0
+        ),
+        "weighted_f1": f1_score(
+            y_true, y_pred, labels=labels, average="weighted", zero_division=0
+        ),
+        "precision_macro": precision_score(
+            y_true, y_pred, labels=labels, average="macro", zero_division=0
+        ),
+        "recall_macro": recall_score(
+            y_true, y_pred, labels=labels, average="macro", zero_division=0
+        ),
+    }
+
+    precision, recall, f1, support = precision_recall_fscore_support(
+        y_true, y_pred, labels=labels, zero_division=0
+    )
+    for idx, label in enumerate(labels):
+        key = safe_label(label)
+        metrics[f"precision_{key}"] = precision[idx]
+        metrics[f"recall_{key}"] = recall[idx]
+        metrics[f"f1_{key}"] = f1[idx]
+        metrics[f"support_{key}"] = int(support[idx])
+    return metrics
+
+
+def select_best_overall(results: pd.DataFrame) -> pd.Series:
+    overall = results[results["row_type"] == "overall"].copy()
+    return (
+        overall.sort_values(
+            ["macro_f1", "balanced_accuracy", "weighted_f1", "accuracy"],
+            ascending=False,
+        )
+        .iloc[0]
+        .copy()
+    )
+
+
+def evaluate_flat_task(
+    task_name: str,
+    df: pd.DataFrame,
+    features: Sequence[str],
+    group_col: str,
+    labels: Sequence[str],
+    models: Mapping[str, Pipeline],
+) -> Tuple[pd.DataFrame, pd.Series, Dict[str, Dict[str, List[str]]]]:
+    logo = LeaveOneGroupOut()
+    records = []
+    predictions = {
+        model_name: {"y_true": [], "y_pred": [], "groups": []} for model_name in models
+    }
+
+    X = df.loc[:, features]
+    y = df["target"]
+    groups = df[group_col].astype(str)
+
+    for model_name, model in models.items():
+        for fold, (train_idx, test_idx) in enumerate(
+            logo.split(X, y, groups=groups), start=1
+        ):
+            heldout_values = sorted(groups.iloc[test_idx].unique().tolist())
+            heldout = ",".join(heldout_values)
+
+            fitted = clone(model)
+            fitted.fit(X.iloc[train_idx], y.iloc[train_idx])
+            y_pred = fitted.predict(X.iloc[test_idx])
+            y_true = y.iloc[test_idx].to_numpy()
+
+            row = {
+                "task": task_name,
+                "row_type": "fold",
+                "fold": fold,
+                "heldout_group": heldout,
+                "model": model_name,
+                "train_rows": int(len(train_idx)),
+                "test_rows": int(len(test_idx)),
+            }
+            row.update(compute_metrics(y_true, y_pred, labels))
+            records.append(row)
+
+            predictions[model_name]["y_true"].extend(y_true.tolist())
+            predictions[model_name]["y_pred"].extend(y_pred.tolist())
+            predictions[model_name]["groups"].extend(groups.iloc[test_idx].tolist())
+
+        y_true_all = predictions[model_name]["y_true"]
+        y_pred_all = predictions[model_name]["y_pred"]
+        row = {
+            "task": task_name,
+            "row_type": "overall",
+            "fold": 0,
+            "heldout_group": "ALL",
+            "model": model_name,
+            "train_rows": int(len(df)),
+            "test_rows": int(len(df)),
+        }
+        row.update(compute_metrics(y_true_all, y_pred_all, labels))
+        records.append(row)
+
+    results = pd.DataFrame(records)
+    best = select_best_overall(results)
+    return results, best, predictions
+
+
+def direct_3class_classification(
+    direct_df: pd.DataFrame,
+    features: Sequence[str],
+    group_col: str,
+    models: Mapping[str, Pipeline],
+    labels: Sequence[str],
+) -> Tuple[pd.DataFrame, pd.Series, Dict[str, Dict[str, List[str]]]]:
+    """Evaluate direct normal/sleepy/stress models with LOSO CV."""
+    return evaluate_flat_task(
+        "direct_3class",
+        direct_df,
+        features,
+        group_col,
+        labels,
+        models,
+    )
+
+
+def evaluate_hierarchical_task(
+    binary_df: pd.DataFrame,
+    subtype_df: pd.DataFrame,
+    final_df: pd.DataFrame,
+    features: Sequence[str],
+    group_col: str,
+    binary_models: Mapping[str, Pipeline],
+    subtype_models: Mapping[str, Pipeline],
+    labels: Sequence[str],
+) -> Tuple[pd.DataFrame, pd.Series, Dict[str, Dict[str, List[str]]]]:
+    records = []
+    predictions: Dict[str, Dict[str, List[str]]] = {}
+    group_values = sorted(final_df[group_col].dropna().astype(str).unique().tolist())
+
+    for binary_name, subtype_name in itertools.product(binary_models, subtype_models):
+        combo_name = f"{binary_name} -> {subtype_name}"
+        predictions[combo_name] = {"y_true": [], "y_pred": [], "groups": []}
+
+        for fold, heldout in enumerate(group_values, start=1):
+            binary_train = binary_df[binary_df[group_col].astype(str) != heldout]
+            subtype_train = subtype_df[subtype_df[group_col].astype(str) != heldout]
+            test = final_df[final_df[group_col].astype(str) == heldout]
+
+            binary_model = clone(binary_models[binary_name])
+            subtype_model = clone(subtype_models[subtype_name])
+
+            binary_model.fit(binary_train.loc[:, features], binary_train["target"])
+            subtype_model.fit(subtype_train.loc[:, features], subtype_train["target"])
+
+            binary_pred = binary_model.predict(test.loc[:, features])
+            final_pred = np.array(
+                ["normal" if pred == "normal" else "" for pred in binary_pred],
+                dtype=object,
+            )
+            abnormal_mask = binary_pred == "abnormal"
+            if abnormal_mask.any():
+                final_pred[abnormal_mask] = subtype_model.predict(
+                    test.loc[abnormal_mask, features]
+                )
+
+            y_true = test["target"].to_numpy()
+            row = {
+                "task": "hierarchical",
+                "row_type": "fold",
+                "fold": fold,
+                "heldout_group": heldout,
+                "binary_model": binary_name,
+                "subtype_model": subtype_name,
+                "model": combo_name,
+                "train_binary_rows": int(len(binary_train)),
+                "train_subtype_rows": int(len(subtype_train)),
+                "test_rows": int(len(test)),
+            }
+            row.update(compute_metrics(y_true, final_pred, labels))
+            records.append(row)
+
+            predictions[combo_name]["y_true"].extend(y_true.tolist())
+            predictions[combo_name]["y_pred"].extend(final_pred.tolist())
+            predictions[combo_name]["groups"].extend(test[group_col].astype(str).tolist())
+
+        y_true_all = predictions[combo_name]["y_true"]
+        y_pred_all = predictions[combo_name]["y_pred"]
+        row = {
+            "task": "hierarchical",
+            "row_type": "overall",
+            "fold": 0,
+            "heldout_group": "ALL",
+            "binary_model": binary_name,
+            "subtype_model": subtype_name,
+            "model": combo_name,
+            "train_binary_rows": int(len(binary_df)),
+            "train_subtype_rows": int(len(subtype_df)),
+            "test_rows": int(len(final_df)),
+        }
+        row.update(compute_metrics(y_true_all, y_pred_all, labels))
+        records.append(row)
+
+    results = pd.DataFrame(records)
+    best = select_best_overall(results)
+    return results, best, predictions
+
+
+def validate_anomalous_combination(
+    datasets: Mapping[str, pd.DataFrame], group_col: str
+) -> Dict[str, object]:
+    anomalous = datasets["anomalous"].copy()
+    sleepy = datasets["sleepy"].copy()
+    stress = datasets["stress"].copy()
+    combo = pd.concat(
+        [sleepy.assign(label="anomalous"), stress.assign(label="anomalous")],
+        ignore_index=True,
+    )
+
+    common_columns = list(anomalous.columns)
+    same_columns = common_columns == list(combo.columns)
+    exact_ordered = False
+    exact_unordered = False
+    if same_columns:
+        exact_ordered = anomalous[common_columns].equals(combo[common_columns])
+        left = anomalous[common_columns].astype(str).sort_values(common_columns)
+        right = combo[common_columns].astype(str).sort_values(common_columns)
+        exact_unordered = left.reset_index(drop=True).equals(right.reset_index(drop=True))
+
+    return {
+        "anomalous_rows": int(len(anomalous)),
+        "sleepy_rows": int(len(sleepy)),
+        "stress_rows": int(len(stress)),
+        "sleepy_plus_stress_rows": int(len(combo)),
+        "same_columns": bool(same_columns),
+        "exact_ordered_match_after_relabel": bool(exact_ordered),
+        "exact_unordered_match_after_relabel": bool(exact_unordered),
+        "anomalous_by_group": anomalous[group_col]
+        .astype(str)
+        .value_counts()
+        .sort_index()
+        .to_dict(),
+        "sleepy_plus_stress_by_group": combo[group_col]
+        .astype(str)
+        .value_counts()
+        .sort_index()
+        .to_dict(),
+    }
+
+
+def pivot_counts(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
+    return (
+        pd.crosstab(df[group_col].astype(str), df["target"], margins=True)
+        .rename_axis(index=group_col, columns="class")
+        .reset_index()
+    )
+
+
+def format_table(df: pd.DataFrame) -> str:
+    return df.to_string(index=False)
+
+
+def describe_missing(df: pd.DataFrame) -> str:
+    missing = df.isna().sum()
+    nonzero = missing[missing > 0]
+    if nonzero.empty:
+        return "none"
+    return ", ".join(f"{column}={int(count)}" for column, count in nonzero.items())
+
+
+def save_confusion_matrix_png(
+    y_true: Sequence[str],
+    y_pred: Sequence[str],
+    labels: Sequence[str],
+    title: str,
+    out_path: Path,
+) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
+    fig, ax = plt.subplots(figsize=(7, 6))
+    image = ax.imshow(cm, interpolation="nearest", cmap="Blues")
+    ax.figure.colorbar(image, ax=ax)
+    ax.set(
+        xticks=np.arange(len(labels)),
+        yticks=np.arange(len(labels)),
+        xticklabels=labels,
+        yticklabels=labels,
+        ylabel="True label",
+        xlabel="Predicted label",
+        title=title,
+    )
+    plt.setp(ax.get_xticklabels(), rotation=30, ha="right", rotation_mode="anchor")
+    threshold = cm.max() / 2.0 if cm.size and cm.max() else 0
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            ax.text(
+                j,
+                i,
+                format(cm[i, j], "d"),
+                ha="center",
+                va="center",
+                color="white" if cm[i, j] > threshold else "black",
+            )
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+def save_random_forest_feature_importance(
+    df: pd.DataFrame,
+    features: Sequence[str],
+    out_path: Path,
+    rf_pipeline: Pipeline,
+    best_model_name: str,
+) -> pd.DataFrame:
+    fitted = clone(rf_pipeline)
+    fitted.fit(df.loc[:, features], df["target"])
+    classifier = fitted.named_steps["classifier"]
+    importances = pd.DataFrame(
+        {
+            "feature": list(features),
+            "importance": classifier.feature_importances_,
+            "stage_best_model": best_model_name,
+            "random_forest_is_stage_best": best_model_name == "Random Forest",
+        }
+    ).sort_values("importance", ascending=False)
+    importances.to_csv(out_path, index=False)
+    return importances
+
+
+def save_feature_importance_png(
+    importances: pd.DataFrame,
+    out_path: Path,
+    title: str,
+    top_n: int = 18,
+) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    plot_df = importances.head(top_n).iloc[::-1]
+    fig, ax = plt.subplots(figsize=(8, 7))
+    ax.barh(plot_df["feature"], plot_df["importance"], color="#2f6f9f")
+    ax.set_xlabel("Random Forest importance")
+    ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+def build_hierarchical_vs_direct_comparison(
+    hierarchical_best: pd.Series, direct_best: pd.Series
+) -> pd.DataFrame:
+    rows = []
+    for approach, best in [
+        ("hierarchical", hierarchical_best),
+        ("direct_3class", direct_best),
+    ]:
+        rows.append(
+            {
+                "approach": approach,
+                "model": best["model"],
+                "accuracy": best["accuracy"],
+                "balanced_accuracy": best["balanced_accuracy"],
+                "macro_f1": best["macro_f1"],
+                "weighted_f1": best["weighted_f1"],
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def off_diagonal_confusions(
+    y_true: Sequence[str], y_pred: Sequence[str], labels: Sequence[str]
+) -> List[str]:
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
+    details = []
+    for i, true_label in enumerate(labels):
+        for j, pred_label in enumerate(labels):
+            if i != j and cm[i, j] > 0:
+                details.append(f"{true_label}->{pred_label}: {int(cm[i, j])}")
+    return details
+
+
+def classification_report_text(
+    y_true: Sequence[str], y_pred: Sequence[str], labels: Sequence[str]
+) -> str:
+    return classification_report(y_true, y_pred, labels=labels, zero_division=0)
+
+
+def best_predictions(
+    best: pd.Series, predictions: Mapping[str, Dict[str, List[str]]]
+) -> Dict[str, List[str]]:
+    return predictions[str(best["model"])]
+
+
+def append_dataset_summary(
+    lines: List[str],
+    datasets: Mapping[str, pd.DataFrame],
+    group_col: str,
+    group_inspection: Mapping[str, Mapping[str, List[object]]],
+    validation: Mapping[str, object],
+    features: Sequence[str],
+    binary_df: pd.DataFrame,
+    subtype_df: pd.DataFrame,
+    final_df: pd.DataFrame,
+    direct_df: pd.DataFrame,
+) -> None:
+    lines.append("DATASET SUMMARY")
+    lines.append("=" * 80)
+    lines.append(f"Group column used: {group_col}")
+    lines.append(
+        "Reason: this column is present in all four files, has repeated values, "
+        "and identifies the 4 participants/sources."
+    )
+    lines.append(
+        "Note: the file column is named RMMSD; scientifically this HRV measure is "
+        "usually referred to as RMSSD."
+    )
+    lines.append("")
+    lines.append("Columns by file:")
+    for name, df in datasets.items():
+        lines.append(f"- {name}.csv ({len(df)} rows): {list(df.columns)}")
+    lines.append("")
+    lines.append("Possible participant/source columns and unique values:")
+    for name, columns in group_inspection.items():
+        if not columns:
+            lines.append(f"- {name}.csv: none detected")
+            continue
+        for column, values in columns.items():
+            lines.append(f"- {name}.csv {column}: {values}")
+    lines.append("")
+    lines.append("Rows, labels, groups, and missing values by file:")
+    for name, df in datasets.items():
+        label_counts = (
+            df["label"].value_counts(dropna=False).sort_index().to_dict()
+            if "label" in df.columns
+            else {}
+        )
+        group_counts = df[group_col].astype(str).value_counts().sort_index().to_dict()
+        lines.append(f"- {name}.csv rows: {len(df)}")
+        lines.append(f"  label distribution: {label_counts}")
+        lines.append(f"  {group_col} distribution: {group_counts}")
+        lines.append(f"  missing values: {describe_missing(df)}")
+    lines.append("")
+    lines.append("Missing values in selected numerical features:")
+    for name, df in datasets.items():
+        feature_missing = df.loc[:, features].isna().sum()
+        missing_text = ", ".join(
+            f"{feature}={int(count)}" for feature, count in feature_missing.items()
+        )
+        lines.append(f"- {name}.csv: {missing_text}")
+    lines.append("")
+    lines.append("Selected feature columns:")
+    lines.append(", ".join(features))
+    lines.append("")
+    lines.append("Excluded identifier/non-feature columns include:")
+    lines.append("window_start, video_source, label, target, filename, participant, subject")
+    lines.append("")
+    lines.append("Rows per group per class - binary task:")
+    lines.append(format_table(pivot_counts(binary_df, group_col)))
+    lines.append("")
+    lines.append("Rows per group per class - subtype task:")
+    lines.append(format_table(pivot_counts(subtype_df, group_col)))
+    lines.append("")
+    lines.append("Rows per group per class - hierarchical final labels:")
+    lines.append(format_table(pivot_counts(final_df, group_col)))
+    lines.append("")
+    lines.append("Rows per group per class - direct 3-class task:")
+    lines.append(format_table(pivot_counts(direct_df, group_col)))
+    lines.append(
+        "Direct 3-class uses normal.csv + sleepy.csv + stress.csv only; "
+        "anomalous.csv is excluded to avoid duplicating sleepy/stress rows."
+    )
+    lines.append("")
+    lines.append("Anomalous.csv validation against sleepy.csv + stress.csv:")
+    for key, value in validation.items():
+        lines.append(f"- {key}: {value}")
+    lines.append("")
+
+
+def append_model_summary(
+    lines: List[str],
+    title: str,
+    results: pd.DataFrame,
+    best: pd.Series,
+    predictions: Mapping[str, Dict[str, List[str]]],
+    labels: Sequence[str],
+) -> None:
+    lines.append(title)
+    lines.append("=" * 80)
+    overall_columns = [
+        "model",
+        "accuracy",
+        "balanced_accuracy",
+        "macro_f1",
+        "weighted_f1",
+        "precision_macro",
+        "recall_macro",
+    ]
+    overall = (
+        results[results["row_type"] == "overall"]
+        .loc[:, overall_columns]
+        .sort_values(["macro_f1", "balanced_accuracy"], ascending=False)
+    )
+    lines.append("Overall model ranking:")
+    lines.append(format_table(overall))
+    lines.append("")
+    lines.append("Per-fold metrics for the selected model:")
+    folds = results[
+        (results["row_type"] == "fold") & (results["model"] == best["model"])
+    ].copy()
+    fold_columns = [
+        "fold",
+        "heldout_group",
+        "accuracy",
+        "balanced_accuracy",
+        "macro_f1",
+        "weighted_f1",
+        "precision_macro",
+        "recall_macro",
+    ]
+    lines.append(format_table(folds.loc[:, fold_columns]))
+    lines.append("")
+    selected_predictions = best_predictions(best, predictions)
+    lines.append(f"Selected model: {best['model']}")
+    lines.append(
+        "Selection criterion: highest macro F1, then balanced accuracy, "
+        "then weighted F1 and accuracy."
+    )
+    lines.append("Classification report for selected model:")
+    lines.append(
+        classification_report_text(
+            selected_predictions["y_true"], selected_predictions["y_pred"], labels
+        )
+    )
+    lines.append("Confusion matrix for selected model:")
+    lines.append(
+        str(
+            confusion_matrix(
+                selected_predictions["y_true"],
+                selected_predictions["y_pred"],
+                labels=labels,
+            )
+        )
+    )
+    lines.append("")
+
+
+def append_interpretation(
+    lines: List[str],
+    binary_best: pd.Series,
+    subtype_best: pd.Series,
+    hierarchical_best: pd.Series,
+    direct_best: pd.Series,
+    hierarchical_predictions: Mapping[str, Dict[str, List[str]]],
+    direct_predictions: Mapping[str, Dict[str, List[str]]],
+    hierarchical_labels: Sequence[str],
+    direct_labels: Sequence[str],
+    hierarchical_results: pd.DataFrame,
+    direct_results: pd.DataFrame,
+    comparison: pd.DataFrame,
+) -> None:
+    lines.append("SHORT INTERPRETATION")
+    lines.append("=" * 80)
+    lines.append(
+        "These results are proof-of-concept only. Leave-One-Subject-Out is the "
+        "right evaluation choice here, but 4 participants is not enough for strong "
+        "generalization claims."
+    )
+    lines.append(
+        f"Binary normal vs abnormal worked best with {binary_best['model']} "
+        f"(macro F1={binary_best['macro_f1']:.3f}, balanced accuracy="
+        f"{binary_best['balanced_accuracy']:.3f})."
+    )
+    lines.append(
+        f"Sleepy vs stress worked best with {subtype_best['model']} "
+        f"(macro F1={subtype_best['macro_f1']:.3f}, balanced accuracy="
+        f"{subtype_best['balanced_accuracy']:.3f})."
+    )
+    lines.append(
+        f"The full hierarchical system worked best with {hierarchical_best['model']} "
+        f"(macro F1={hierarchical_best['macro_f1']:.3f}, balanced accuracy="
+        f"{hierarchical_best['balanced_accuracy']:.3f}, weighted F1="
+        f"{hierarchical_best['weighted_f1']:.3f})."
+    )
+    lines.append(
+        f"The direct 3-class system worked best with {direct_best['model']} "
+        f"(macro F1={direct_best['macro_f1']:.3f}, balanced accuracy="
+        f"{direct_best['balanced_accuracy']:.3f}, weighted F1="
+        f"{direct_best['weighted_f1']:.3f})."
+    )
+
+    lines.append("")
+    lines.append("Hierarchical vs direct 3-class comparison:")
+    lines.append(format_table(comparison))
+
+    if direct_best["macro_f1"] > hierarchical_best["macro_f1"]:
+        better = "direct 3-class"
+    elif direct_best["macro_f1"] < hierarchical_best["macro_f1"]:
+        better = "hierarchical"
+    else:
+        better = "tie on macro F1"
+    lines.append(
+        "Based mainly on macro F1, the better approach was: "
+        f"{better}."
+    )
+
+    hierarchical_selected = best_predictions(hierarchical_best, hierarchical_predictions)
+    hierarchical_confusions = off_diagonal_confusions(
+        hierarchical_selected["y_true"],
+        hierarchical_selected["y_pred"],
+        hierarchical_labels,
+    )
+    if hierarchical_confusions:
+        lines.append(
+            "Hierarchical class confusions: " + ", ".join(hierarchical_confusions)
+        )
+    else:
+        lines.append("Hierarchical class confusions: none in selected LOSO predictions.")
+
+    direct_selected = best_predictions(direct_best, direct_predictions)
+    direct_confusions = off_diagonal_confusions(
+        direct_selected["y_true"],
+        direct_selected["y_pred"],
+        direct_labels,
+    )
+    if direct_confusions:
+        lines.append("Direct 3-class confusions: " + ", ".join(direct_confusions))
+    else:
+        lines.append("Direct 3-class confusions: none in selected LOSO predictions.")
+
+    direct_normal_confusions = [
+        item
+        for item in direct_confusions
+        if item.startswith("normal->") or "->normal:" in item
+    ]
+    if direct_normal_confusions:
+        lines.append(
+            "The direct 3-class model did confuse normal with sleepy/stress: "
+            + ", ".join(direct_normal_confusions)
+        )
+    else:
+        lines.append(
+            "The direct 3-class model did not confuse normal with sleepy/stress "
+            "in the selected LOSO predictions."
+        )
+
+    folds = hierarchical_results[
+        (hierarchical_results["row_type"] == "fold")
+        & (hierarchical_results["model"] == hierarchical_best["model"])
+    ]
+    macro_min = folds["macro_f1"].min()
+    macro_max = folds["macro_f1"].max()
+    bal_min = folds["balanced_accuracy"].min()
+    bal_max = folds["balanced_accuracy"].max()
+    lines.append(
+        "Fold stability for the selected hierarchical system: "
+        f"macro F1 ranged from {macro_min:.3f} to {macro_max:.3f}; "
+        f"balanced accuracy ranged from {bal_min:.3f} to {bal_max:.3f}."
+    )
+    direct_folds = direct_results[
+        (direct_results["row_type"] == "fold")
+        & (direct_results["model"] == direct_best["model"])
+    ]
+    direct_macro_min = direct_folds["macro_f1"].min()
+    direct_macro_max = direct_folds["macro_f1"].max()
+    direct_bal_min = direct_folds["balanced_accuracy"].min()
+    direct_bal_max = direct_folds["balanced_accuracy"].max()
+    lines.append(
+        "Fold stability for the selected direct 3-class system: "
+        f"macro F1 ranged from {direct_macro_min:.3f} to {direct_macro_max:.3f}; "
+        f"balanced accuracy ranged from {direct_bal_min:.3f} to "
+        f"{direct_bal_max:.3f}."
+    )
+    lines.append(
+        "More participants are needed before using the model for reliable claims "
+        "about unseen students or deployment settings."
+    )
+    lines.append("")
+
+
+def main() -> None:
+    args = parse_args()
+    csv_dir = resolve_csv_dir(args.data_dir)
+    results_dir = args.results_dir.expanduser().resolve()
+    result_dirs = prepare_results_dirs(results_dir)
+
+    mpl_config = results_dir / ".matplotlib"
+    mpl_config.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("MPLCONFIGDIR", str(mpl_config))
+
+    raw_datasets = load_datasets(csv_dir)
+    features = validate_features(raw_datasets)
+    datasets = coerce_feature_columns(raw_datasets, features)
+    group_inspection = inspect_group_candidates(datasets)
+    group_col = infer_group_column(datasets)
+
+    validation = validate_anomalous_combination(datasets, group_col)
+
+    binary_df = build_binary_dataset(datasets, group_col)
+    subtype_df = build_subtype_dataset(datasets, group_col)
+    final_df = build_hierarchical_test_dataset(datasets, group_col)
+    direct_df = build_direct_3class_dataset(datasets, group_col)
+
+    models = model_factories()
+    binary_labels = ["normal", "abnormal"]
+    subtype_labels = ["sleepy", "stress"]
+    hierarchical_labels = ["normal", "sleepy", "stress"]
+    direct_labels = ["normal", "sleepy", "stress"]
+
+    print(f"Using CSV directory: {csv_dir}")
+    print(f"Using group column: {group_col}")
+    print("Running binary normal vs abnormal LOSO evaluation...")
+    binary_results, binary_best, binary_predictions = evaluate_flat_task(
+        "binary",
+        binary_df,
+        features,
+        group_col,
+        binary_labels,
+        models,
+    )
+
+    print("Running sleepy vs stress LOSO evaluation...")
+    subtype_results, subtype_best, subtype_predictions = evaluate_flat_task(
+        "subtype",
+        subtype_df,
+        features,
+        group_col,
+        subtype_labels,
+        models,
+    )
+
+    print("Running full hierarchical LOSO evaluation...")
+    hierarchical_results, hierarchical_best, hierarchical_predictions = (
+        evaluate_hierarchical_task(
+            binary_df,
+            subtype_df,
+            final_df,
+            features,
+            group_col,
+            models,
+            models,
+            hierarchical_labels,
+        )
+    )
+
+    print("Running direct 3-class LOSO evaluation...")
+    direct_results, direct_best, direct_predictions = direct_3class_classification(
+        direct_df,
+        features,
+        group_col,
+        models,
+        direct_labels,
+    )
+
+    binary_results.to_csv(result_dirs["binary"] / "binary_results.csv", index=False)
+    subtype_results.to_csv(result_dirs["subtype"] / "subtype_results.csv", index=False)
+    hierarchical_results.to_csv(
+        result_dirs["hierarchical"] / "hierarchical_results.csv",
+        index=False,
+    )
+    direct_results.to_csv(
+        result_dirs["direct_3class"] / "direct_3class_results.csv",
+        index=False,
+    )
+    direct_results[direct_results["row_type"] == "fold"].to_csv(
+        result_dirs["direct_3class"] / "direct_3class_per_fold_results.csv",
+        index=False,
+    )
+
+    binary_selected = best_predictions(binary_best, binary_predictions)
+    subtype_selected = best_predictions(subtype_best, subtype_predictions)
+    hierarchical_selected = best_predictions(hierarchical_best, hierarchical_predictions)
+    direct_selected = best_predictions(direct_best, direct_predictions)
+
+    save_confusion_matrix_png(
+        binary_selected["y_true"],
+        binary_selected["y_pred"],
+        binary_labels,
+        f"Binary LOSO Confusion Matrix: {binary_best['model']}",
+        result_dirs["binary"] / "binary_confusion_matrix.png",
+    )
+    save_confusion_matrix_png(
+        subtype_selected["y_true"],
+        subtype_selected["y_pred"],
+        subtype_labels,
+        f"Subtype LOSO Confusion Matrix: {subtype_best['model']}",
+        result_dirs["subtype"] / "subtype_confusion_matrix.png",
+    )
+    save_confusion_matrix_png(
+        hierarchical_selected["y_true"],
+        hierarchical_selected["y_pred"],
+        hierarchical_labels,
+        f"Hierarchical LOSO Confusion Matrix: {hierarchical_best['model']}",
+        result_dirs["hierarchical"] / "hierarchical_confusion_matrix.png",
+    )
+    save_confusion_matrix_png(
+        direct_selected["y_true"],
+        direct_selected["y_pred"],
+        direct_labels,
+        f"Direct 3-Class LOSO Confusion Matrix: {direct_best['model']}",
+        result_dirs["direct_3class"] / "direct_3class_confusion_matrix.png",
+    )
+
+    direct_report = [
+        f"Selected direct 3-class model: {direct_best['model']}",
+        (
+            "Selection criterion: highest macro F1, then balanced accuracy, "
+            "then weighted F1 and accuracy."
+        ),
+        "",
+        "Classification report:",
+        classification_report_text(
+            direct_selected["y_true"], direct_selected["y_pred"], direct_labels
+        ),
+        "Confusion matrix:",
+        str(
+            confusion_matrix(
+                direct_selected["y_true"],
+                direct_selected["y_pred"],
+                labels=direct_labels,
+            )
+        ),
+    ]
+    (result_dirs["direct_3class"] / "direct_3class_classification_report.txt").write_text(
+        "\n".join(direct_report) + "\n",
+        encoding="utf-8",
+    )
+
+    save_random_forest_feature_importance(
+        binary_df,
+        features,
+        result_dirs["binary"] / "feature_importance_binary.csv",
+        models["Random Forest"],
+        str(binary_best["model"]),
+    )
+    save_random_forest_feature_importance(
+        subtype_df,
+        features,
+        result_dirs["subtype"] / "feature_importance_subtype.csv",
+        models["Random Forest"],
+        str(subtype_best["model"]),
+    )
+    direct_importances = save_random_forest_feature_importance(
+        direct_df,
+        features,
+        result_dirs["direct_3class"] / "direct_3class_feature_importance.csv",
+        models["Random Forest"],
+        str(direct_best["model"]),
+    )
+    save_feature_importance_png(
+        direct_importances,
+        result_dirs["direct_3class"] / "direct_3class_feature_importance.png",
+        "Direct 3-Class Random Forest Feature Importance",
+    )
+
+    comparison = build_hierarchical_vs_direct_comparison(
+        hierarchical_best,
+        direct_best,
+    )
+    comparison.to_csv(
+        result_dirs["comparison"] / "hierarchical_vs_direct_3class_comparison.csv",
+        index=False,
+    )
+
+    summary_lines: List[str] = []
+    append_dataset_summary(
+        summary_lines,
+        datasets,
+        group_col,
+        group_inspection,
+        validation,
+        features,
+        binary_df,
+        subtype_df,
+        final_df,
+        direct_df,
+    )
+    append_model_summary(
+        summary_lines,
+        "BINARY: NORMAL VS ABNORMAL",
+        binary_results,
+        binary_best,
+        binary_predictions,
+        binary_labels,
+    )
+    append_model_summary(
+        summary_lines,
+        "SUBTYPE: SLEEPY VS STRESS",
+        subtype_results,
+        subtype_best,
+        subtype_predictions,
+        subtype_labels,
+    )
+    append_model_summary(
+        summary_lines,
+        "HIERARCHICAL: NORMAL, SLEEPY, STRESS",
+        hierarchical_results,
+        hierarchical_best,
+        hierarchical_predictions,
+        hierarchical_labels,
+    )
+    append_model_summary(
+        summary_lines,
+        "DIRECT 3-CLASS: NORMAL, SLEEPY, STRESS",
+        direct_results,
+        direct_best,
+        direct_predictions,
+        direct_labels,
+    )
+    append_interpretation(
+        summary_lines,
+        binary_best,
+        subtype_best,
+        hierarchical_best,
+        direct_best,
+        hierarchical_predictions,
+        direct_predictions,
+        hierarchical_labels,
+        direct_labels,
+        hierarchical_results,
+        direct_results,
+        comparison,
+    )
+
+    summary_text = "\n".join(summary_lines)
+    (result_dirs["summary"] / "final_summary.txt").write_text(
+        summary_text + "\n",
+        encoding="utf-8",
+    )
+
+    print("")
+    print(summary_text)
+    print(f"Saved outputs to: {results_dir}")
+
+
+if __name__ == "__main__":
+    main()

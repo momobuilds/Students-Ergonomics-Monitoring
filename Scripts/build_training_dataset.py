@@ -71,9 +71,9 @@ def main():
         print(f"Class: {cls}")
         df = build_class(cls, raw_dir)
 
-        df = df.drop(columns=[c for c in KEY_COLS if c in df.columns], errors="ignore")
-
-        cols = [c for c in df.columns if c != "label"] + ["label"]
+        key_present = [c for c in KEY_COLS if c in df.columns]
+        other_cols  = [c for c in df.columns if c not in KEY_COLS and c != "label"]
+        cols = key_present + other_cols + ["label"]
         df = df[cols]
 
         out_path = raw_dir / f"training_{cls}.csv"

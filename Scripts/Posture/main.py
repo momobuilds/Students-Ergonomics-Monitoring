@@ -1,17 +1,19 @@
 """
 main.py — Posture Feature Extraction from Videos
 
-Processes all videos in Video/Normal/ and Video/Anomalous/ folders,
+Processes all videos in Video/Normal/, Video/Sleepy/, and Video/Stress/ folders,
 extracts posture features using sliding windows, and saves CSVs.
 
 Usage:
-    python main.py              # Process all videos in both folders
+    python main.py              # Process all three classes
     python main.py --normal     # Process only Normal videos
-    python main.py --anomalous  # Process only Anomalous videos
+    python main.py --sleepy     # Process only Sleepy videos
+    python main.py --stress     # Process only Stress videos
 
 Output:
     data/raw/posture_normal.csv
-    data/raw/posture_anomalous.csv
+    data/raw/posture_sleepy.csv
+    data/raw/posture_stress.csv
 """
 
 import argparse
@@ -118,7 +120,7 @@ def process_folder(video_dir, csv_path, label):
     Args:
         video_dir (str): Path to the video folder.
         csv_path (str): Path to the output CSV.
-        label (str): Label for logging ("Normal" or "Anomalous").
+        label (str): Class label written into every row ("normal"/"sleepy"/"stress").
     """
     print(f"\n{'='*60}")
     print(f"  Processing {label} videos")
@@ -155,13 +157,12 @@ def process_folder(video_dir, csv_path, label):
         rows = feature_ext.compute_windows()
         print(f"  Windows generated: {len(rows)}")
 
-        # Add video source to each row
         for row in rows:
             row["video_source"] = video_name
+            row["label"] = label
 
         all_rows.extend(rows)
 
-    # Save
     save_csv(all_rows, csv_path)
 
 
@@ -174,13 +175,17 @@ def main():
         help="Process only Normal videos"
     )
     parser.add_argument(
-        "--anomalous", action="store_true",
-        help="Process only Anomalous videos"
+        "--sleepy", action="store_true",
+        help="Process only Sleepy videos"
+    )
+    parser.add_argument(
+        "--stress", action="store_true",
+        help="Process only Stress videos"
     )
     args = parser.parse_args()
 
-    # If neither flag is set, process both
-    do_both = not args.normal and not args.anomalous
+    # If no flag is set, process all three classes
+    do_all = not args.normal and not args.sleepy and not args.stress
 
     print("=" * 60)
     print("  POSTURE FEATURE EXTRACTION")
@@ -188,19 +193,14 @@ def main():
     print(f"  Features: 9 (mean, std, bad_pct × 3 parameters)")
     print("=" * 60)
 
-    if do_both or args.normal:
-        process_folder(
-            config.VIDEO_NORMAL_DIR,
-            config.CSV_NORMAL_PATH,
-            "Normal"
-        )
+    if do_all or args.normal:
+        process_folder(config.VIDEO_NORMAL_DIR, config.CSV_NORMAL_PATH, "normal")
 
-    if do_both or args.anomalous:
-        process_folder(
-            config.VIDEO_ANOMALOUS_DIR,
-            config.CSV_ANOMALOUS_PATH,
-            "Anomalous"
-        )
+    if do_all or args.sleepy:
+        process_folder(config.VIDEO_SLEEPY_DIR, config.CSV_SLEEPY_PATH, "sleepy")
+
+    if do_all or args.stress:
+        process_folder(config.VIDEO_STRESS_DIR, config.CSV_STRESS_PATH, "stress")
 
     print(f"\n{'='*60}")
     print("  DONE")

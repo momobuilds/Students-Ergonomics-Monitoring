@@ -58,7 +58,8 @@ class BlinkAnalyzer:
         result = self.face_mesh.process(rgb)
 
         if not result.multi_face_landmarks:
-            return {"face_detected": False, "ear": None, "is_closed": False}
+            return {"face_detected": False, "ear": None, "is_closed": False,
+                    "left_eye": [], "right_eye": []}
 
         landmarks = result.multi_face_landmarks[0].landmark
         h, w = frame.shape[:2]
@@ -67,10 +68,18 @@ class BlinkAnalyzer:
         right_ear = self._eye_aspect_ratio(landmarks, config.RIGHT_EYE_INDICES, w, h)
         ear = (left_ear + right_ear) / 2.0
 
+        # Pixel coordinates of the eye landmarks, for drawing overlays.
+        left_eye = [(int(landmarks[i].x * w), int(landmarks[i].y * h))
+                    for i in config.LEFT_EYE_INDICES]
+        right_eye = [(int(landmarks[i].x * w), int(landmarks[i].y * h))
+                     for i in config.RIGHT_EYE_INDICES]
+
         return {
             "face_detected": True,
             "ear": ear,
             "is_closed": ear < config.EAR_CLOSED_THRESHOLD,
+            "left_eye": left_eye,
+            "right_eye": right_eye,
         }
 
     def close(self):

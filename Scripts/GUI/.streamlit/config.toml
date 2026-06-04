@@ -1,0 +1,16 @@
+[theme]
+base = "light"
+primaryColor = "#2e7d32"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#e8f5e9"
+textColor = "#13311f"
+font = "sans serif"
+
+[server]
+# Allow uploading longer videos for the offline analysis.
+maxUploadSize = 1024
+
+[client]
+# Keep deprecation banners (e.g. add_rows) out of the UI; still logged to console.
+# Any value other than "full" hides deprecation warnings in the browser.
+showErrorDetails = "stacktrace"

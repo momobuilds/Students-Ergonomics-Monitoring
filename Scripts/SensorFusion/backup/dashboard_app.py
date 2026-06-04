@@ -20,9 +20,9 @@ DATA_PATH = REPO_ROOT / "data" / "fake_sensor_data.csv"
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
-from fusion import apply_fusion_to_dataframe, calculate_fusion_result
-from generate_fake_data import generate_fake_data
-from llm_advisor import (
+from Scripts.SensorFusion.backup.fusion import apply_fusion_to_dataframe, calculate_fusion_result
+from Scripts.SensorFusion.backup.generate_fake_data import generate_fake_data
+from Scripts.SensorFusion.backup.llm_advisor import (
     answer_data_question,
     check_ollama_available,
     generate_advice,

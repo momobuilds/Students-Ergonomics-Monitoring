@@ -446,19 +446,30 @@ def evaluate_clustering(
     return row, table, y_pred
 
 
-def fit_clustering_models(
-    X_scaled: np.ndarray, random_state: int
-) -> Dict[str, np.ndarray]:
+def clustering_models(random_state: int) -> Dict[str, object]:
+    """Return reusable (unfitted) clustering estimators for the 3-group task.
+
+    Single source of truth for the clustering model definitions, so other
+    scripts (e.g. the real-time / test-video monitors) can import the exact
+    same estimators instead of re-instantiating them.
+    """
     return {
-        "K-Means": KMeans(n_clusters=3, n_init=50, random_state=random_state).fit_predict(
-            X_scaled
-        ),
+        "K-Means": KMeans(n_clusters=3, n_init=50, random_state=random_state),
         "Gaussian Mixture": GaussianMixture(
             n_components=3,
             covariance_type="full",
             random_state=random_state,
-        ).fit_predict(X_scaled),
-        "Agglomerative": AgglomerativeClustering(n_clusters=3).fit_predict(X_scaled),
+        ),
+        "Agglomerative": AgglomerativeClustering(n_clusters=3),
+    }
+
+
+def fit_clustering_models(
+    X_scaled: np.ndarray, random_state: int
+) -> Dict[str, np.ndarray]:
+    return {
+        name: model.fit_predict(X_scaled)
+        for name, model in clustering_models(random_state).items()
     }
 
 

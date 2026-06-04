@@ -84,18 +84,42 @@ def _dashed_line(cv2, frame, p1, p2, color, dash=10):
                  color, 1, cv2.LINE_AA)
 
 
-def _chip(cv2, frame, text, org, color):
-    """A small translucent label with a colored left border."""
-    h, w = frame.shape[:2]
-    (tw, th), bl = cv2.getTextSize(text, _font(cv2), 0.5, 1)
-    pad = 5
-    x = int(np.clip(org[0], 6, w - tw - 10))
-    y = int(np.clip(org[1], th + 8, h - 10))
+def _metrics_panel(cv2, frame, rows, margin=12):
+    """Draw the posture metric values in a fixed translucent box, top-right.
+
+    ``rows`` is a list of ``(text, color)`` tuples. Keeping the values pinned
+    here (instead of next to the moving landmarks) avoids covering the face.
+    """
+    if not rows:
+        return
+    w = frame.shape[1]
+    scale = 0.5
+    pad = 8
+    line_h = 22
+    swatch = 4
+
+    # Width fits the longest row (plus the colored swatch + paddings).
+    text_w = max(cv2.getTextSize(t, _font(cv2), scale, 1)[0][0] for t, _ in rows)
+    box_w = swatch + 8 + text_w + 2 * pad
+    box_h = len(rows) * line_h + 2 * pad - (line_h - 16)
+
+    x2 = w - margin
+    x1 = x2 - box_w
+    y1 = margin
+    y2 = y1 + box_h
+
     overlay = frame.copy()
-    cv2.rectangle(overlay, (x - pad, y - th - pad), (x + tw + pad, y + bl), (0, 0, 0), -1)
+    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 0), -1)
     cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
-    cv2.rectangle(frame, (x - pad, y - th - pad), (x - pad + 3, y + bl), color, -1)
-    cv2.putText(frame, text, (x, y), _font(cv2), 0.5, color, 1, cv2.LINE_AA)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (90, 90, 90), 1, cv2.LINE_AA)
+
+    ty = y1 + pad + 12
+    for text, color in rows:
+        sx = x1 + pad
+        cv2.rectangle(frame, (sx, ty - 10), (sx + swatch, ty + 2), color, -1)
+        cv2.putText(frame, text, (sx + swatch + 8, ty), _font(cv2), scale,
+                    color, 1, cv2.LINE_AA)
+        ty += line_h
 
 
 def _corner_box(cv2, frame, x1, y1, x2, y2, color, thickness=2):
@@ -156,14 +180,17 @@ def draw_posture_skeleton(cv2, frame, landmarks, values, cfg):
     sh_mid = _mid(ls, rs) if ls and rs else None
     ear_mid = _mid(le, re) if le and re else None
 
+    # The numeric values go into a fixed top-right panel (instead of next to
+    # the moving landmarks, where they would cover the face).
+    rows = []
+
     # 3) shoulder asymmetry: the shoulder line itself
     if ls and rs:
         ok = shoulder_val is None or abs(shoulder_val) <= cfg.SHOULDER_ASYMMETRY_THRESHOLD
         color = GOOD if ok else BAD
         _glow_line(cv2, frame, ls, rs, color, 4)
         if shoulder_val is not None:
-            _chip(cv2, frame, f"Shoulder {shoulder_val:+.1f}deg",
-                  (min(ls[0], rs[0]), min(ls[1], rs[1]) - 14), color)
+            rows.append((f"Shoulder {shoulder_val:+.1f}deg", color))
 
     # 4) head lateral tilt: ear-mid -> shoulder-mid vs the vertical
     if ear_mid and sh_mid:
@@ -172,8 +199,7 @@ def draw_posture_skeleton(cv2, frame, landmarks, values, cfg):
         _dashed_line(cv2, frame, sh_mid, (sh_mid[0], sh_mid[1] - 170), REF)
         _glow_line(cv2, frame, ear_mid, sh_mid, color, 3)
         if tilt_val is not None:
-            _chip(cv2, frame, f"Head tilt {tilt_val:+.1f}deg",
-                  (ear_mid[0] + 12, ear_mid[1]), color)
+            rows.append((f"Head tilt {tilt_val:+.1f}deg", color))
 
     # 5) forward-head proxy: nose -> shoulder-mid vertical span
     if nose and sh_mid:
@@ -181,8 +207,9 @@ def draw_posture_skeleton(cv2, frame, landmarks, values, cfg):
         color = FHP if ok else BAD
         _glow_line(cv2, frame, nose, sh_mid, color, 2)
         if fhp_val is not None:
-            _chip(cv2, frame, f"FHP {fhp_val:.2f}",
-                  (sh_mid[0] + 12, _mid(nose, sh_mid)[1]), color)
+            rows.append((f"FHP {fhp_val:.2f}", color))
+
+    _metrics_panel(cv2, frame, rows)
 
 
 def draw_eye_boxes(cv2, frame, left_eye, right_eye, is_closed):

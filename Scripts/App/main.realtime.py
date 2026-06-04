@@ -60,18 +60,22 @@ import numpy as np
 # PATHS / MODULE WIRING
 # =============================================================================
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-POSTURE_DIR = SCRIPT_DIR / "Posture"
-BLINKING_DIR = SCRIPT_DIR / "Blinking"
-HEARTRATE_DIR = SCRIPT_DIR / "HeartRate"
-ML_DIR = SCRIPT_DIR / "ML"
-PROJECT_ROOT = SCRIPT_DIR.parent
+# This file lives in Scripts/App; the sibling feature folders and the project
+# root are one level up from Scripts.
+APP_DIR = Path(__file__).resolve().parent
+SCRIPTS_DIR = APP_DIR.parent
+POSTURE_DIR = SCRIPTS_DIR / "Posture"
+BLINKING_DIR = SCRIPTS_DIR / "Blinking"
+HEARTRATE_DIR = SCRIPTS_DIR / "HeartRate"
+ML_DIR = SCRIPTS_DIR / "ML"
+PROJECT_ROOT = SCRIPTS_DIR.parent
 SUPERVISED_DIR = PROJECT_ROOT / "data" / "supervised"
 
 # The sub-modules import their config as a bare name ("config" / "blink_config"),
 # so their folders must be importable directly. ML is added so we can reuse the
 # exact model definitions (model_factories) from the evaluation pipeline.
-for _module_dir in (POSTURE_DIR, BLINKING_DIR, HEARTRATE_DIR, ML_DIR):
+# APP_DIR is added so we can import the shared overlay_drawing module (same folder).
+for _module_dir in (APP_DIR, POSTURE_DIR, BLINKING_DIR, HEARTRATE_DIR, ML_DIR):
     _path = str(_module_dir)
     if _path not in sys.path:
         sys.path.insert(0, _path)
@@ -143,8 +147,9 @@ def supervised_models():
 def model_catalog(task, learning):
     """Return {model_name: (kind, estimator)} for a task/learning combination.
 
-    kind is one of 'classifier', 'anomaly', 'cluster'. Estimators reuse the
-    exact definitions from the supervised and unsupervised ML scripts.
+    kind is one of 'classifier', 'anomaly', 'cluster'. Every estimator is
+    imported from the ML scripts (supervised + unsupervised), so the model
+    definitions live in a single place.
     """
     catalog = {}
 
@@ -153,20 +158,19 @@ def model_catalog(task, learning):
             catalog[name] = ("classifier", pipeline)
         return catalog
 
-    # Unsupervised: anomaly detectors (binary only) + clustering.
-    from sklearn.cluster import KMeans
-    from sklearn.mixture import GaussianMixture
-
+    # Unsupervised: anomaly detectors (binary only) + clustering, all from ML.
     if task == "binary":
-        from unsupervised_wellbeing_analysis import anomaly_models
+        from unsupervised_wellbeing_analysis import anomaly_models, clustering_models
         for name, model in anomaly_models(RANDOM_STATE).items():
             catalog[name] = ("anomaly", model)
+    else:
+        from unsupervised_3group_wellbeing_analysis import clustering_models
 
-    n_clusters = 2 if task == "binary" else 3
-    catalog["K-Means"] = ("cluster", KMeans(
-        n_clusters=n_clusters, n_init=50, random_state=RANDOM_STATE))
-    catalog["Gaussian Mixture"] = ("cluster", GaussianMixture(
-        n_components=n_clusters, covariance_type="full", random_state=RANDOM_STATE))
+    for name, estimator in clustering_models(RANDOM_STATE).items():
+        # keep only clustering models that can assign a label to NEW samples
+        # (e.g. Agglomerative has no predict, so it is skipped for live use)
+        if hasattr(estimator, "predict"):
+            catalog[name] = ("cluster", estimator)
     return catalog
 
 
@@ -594,6 +598,7 @@ def main():
     from feature_extractor import FeatureExtractor
     from blink_analyzer import BlinkAnalyzer
     from blink_feature_extractor import BlinkFeatureExtractor
+    import overlay_drawing as overlay
 
     window_size = posture_config.WINDOW_SIZE  # 60s, same as the training windows
 
@@ -659,7 +664,13 @@ def main():
             # --- Wearable ---
             hr_monitor.poll()
 
-            # --- Overlay + display ---
+            # --- Body / eye overlays drawn on top of the person ---
+            overlay.draw_posture_skeleton(cv2, frame, landmarks, values, posture_config)
+            overlay.draw_eye_boxes(cv2, frame, blink_result.get("left_eye", []),
+                                   blink_result.get("right_eye", []),
+                                   blink_result.get("is_closed", False))
+
+            # --- Info panels + prediction banner ---
             draw_overlay(
                 cv2, frame,
                 remaining=window_size - t_rel,

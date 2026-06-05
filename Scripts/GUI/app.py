@@ -245,27 +245,35 @@ def sidebar_controls() -> dict:
         if use_wearable:
             wearable_port = st.sidebar.text_input("Wearable serial port", value="COM3")
 
-    # ---- 3. ANALYSIS WINDOW ----------------------------------------------
+    # ---- 3. ANALYSIS WINDOW (fixed) --------------------------------------
+    # The window length is fixed at 60s to match the training data: every
+    # feature in data/supervised is computed over 60s windows, so a prediction
+    # is produced once per minute. Not editable from the GUI.
     st.sidebar.header("Analysis window")
-    window_size = st.sidebar.slider(
-        "Window length (seconds)", min_value=10, max_value=120, value=60, step=5,
-        help="A prediction is produced at every completed window. "
-             "60s = same as the training data; shorter values = quicker demos.",
+    st.sidebar.caption(
+        "Each window is **60 seconds** (one prediction per minute), fixed to "
+        "match the training data (data/supervised)."
     )
 
-    # ---- 4. THRESHOLDS ----------------------------------------------------
-    # Defaults are read from Scripts/Posture/config.py and
-    # Scripts/Blinking/blink_config.py (literature-based values).
+    # ---- 4. THRESHOLDS (fixed) -------------------------------------------
+    # The posture/blink thresholds are intentionally NOT editable. The model is
+    # trained on data/supervised, whose features (bad_pct, PERCLOS, blink
+    # detection) were computed with these exact literature values. Changing them
+    # at inference time would no longer match the training data, so they are
+    # shown read-only and kept at their config defaults.
     dft = pipeline.default_thresholds()
-    with st.sidebar.expander("Posture / blinking thresholds", expanded=False):
-        st.caption("Defaults from Scripts/Posture/config.py and "
+    with st.sidebar.expander("Posture / blinking thresholds (fixed)", expanded=False):
+        st.caption("Fixed to match the training data (data/supervised). "
+                   "Values from Scripts/Posture/config.py and "
                    "Scripts/Blinking/blink_config.py (literature-based).")
-        shoulder_thr = st.slider("Shoulder asymmetry (deg)", 1.0, 20.0, dft["shoulder_thr"], 0.5)
-        head_tilt_thr = st.slider("Head lateral tilt (deg)", 1.0, 30.0, dft["head_tilt_thr"], 0.5)
-        fhp_thr = st.slider("Forward-head proxy (threshold)", 0.3, 1.5, dft["fhp_thr"], 0.05)
-        min_visibility = st.slider("Minimum landmark visibility", 0.1, 0.9, dft["min_visibility"], 0.05)
-        ear_thr = st.slider("EAR closed-eye", 0.10, 0.35, dft["ear_thr"], 0.01)
-        perclos_thr = st.slider("PERCLOS problematic", 0.05, 0.6, dft["perclos_thr"], 0.05)
+        st.markdown(
+            f"- Shoulder asymmetry: **{dft['shoulder_thr']:.1f}°**\n"
+            f"- Head lateral tilt: **{dft['head_tilt_thr']:.1f}°**\n"
+            f"- Forward-head proxy: **{dft['fhp_thr']:.2f}**\n"
+            f"- Minimum landmark visibility: **{dft['min_visibility']:.2f}**\n"
+            f"- EAR closed-eye: **{dft['ear_thr']:.2f}**\n"
+            f"- PERCLOS problematic: **{dft['perclos_thr']:.2f}**"
+        )
 
     # ---- 5. DATA ----------------------------------------------------------
     st.sidebar.header("Data")
@@ -287,13 +295,6 @@ def sidebar_controls() -> dict:
         "camera_index": int(camera_index),
         "use_wearable": use_wearable,
         "wearable_port": wearable_port,
-        "window_size": window_size,
-        "shoulder_thr": shoulder_thr,
-        "head_tilt_thr": head_tilt_thr,
-        "fhp_thr": fhp_thr,
-        "min_visibility": min_visibility,
-        "ear_thr": ear_thr,
-        "perclos_thr": perclos_thr,
     }
 
 

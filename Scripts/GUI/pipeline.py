@@ -217,25 +217,22 @@ def default_thresholds() -> dict:
 
 
 def apply_settings(settings: dict):
-    """Push the GUI parameter values into the shared config modules.
+    """Align the shared config modules with how the GUI consumes windows.
 
-    These are read by the feature extractors and the overlay, so changing them
-    in the sidebar changes the live analysis without touching any script file.
+    Nothing is editable from the GUI anymore: the window length stays at the
+    config default (60s, to match data/supervised) and the posture/blink
+    thresholds are left at their config values. The only adjustment is forcing
+    the window STEP to equal the window SIZE, so the live pipeline produces a
+    single tumbling window per minute instead of the offline 10s sliding step.
+
+    Changing thresholds or window length at inference time would create a
+    train/inference mismatch, so they are shown read-only in the sidebar.
     """
     import config as posture_config
     import blink_config
 
-    win = int(settings.get("window_size", posture_config.WINDOW_SIZE))
-    posture_config.WINDOW_SIZE = win
+    win = int(posture_config.WINDOW_SIZE)
     blink_config.WINDOW_SIZE = win
     # A single tumbling window per minute -> step == size keeps one window.
     posture_config.WINDOW_STEP = win
     blink_config.WINDOW_STEP = win
-
-    posture_config.SHOULDER_ASYMMETRY_THRESHOLD = settings["shoulder_thr"]
-    posture_config.HEAD_LATERAL_TILT_THRESHOLD = settings["head_tilt_thr"]
-    posture_config.FORWARD_HEAD_PROXY_THRESHOLD = settings["fhp_thr"]
-    posture_config.MIN_VISIBILITY = settings["min_visibility"]
-
-    blink_config.EAR_CLOSED_THRESHOLD = settings["ear_thr"]
-    blink_config.PERCLOS_BAD_THRESHOLD = settings["perclos_thr"]

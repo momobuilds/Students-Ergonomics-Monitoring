@@ -263,16 +263,28 @@ def sidebar_controls() -> dict:
     # shown read-only and kept at their config defaults.
     dft = pipeline.default_thresholds()
     with st.sidebar.expander("Posture / blinking thresholds (fixed)", expanded=False):
-        st.caption("Fixed to match the training data (data/supervised). "
-                   "Values from Scripts/Posture/config.py and "
-                   "Scripts/Blinking/blink_config.py (literature-based).")
+        rows = [
+            ("Shoulder asymmetry", f"{dft['shoulder_thr']:.0f}&deg;"),
+            ("Head lateral tilt", f"{dft['head_tilt_thr']:.0f}&deg;"),
+            ("Forward-head proxy", f"{dft['fhp_thr']:.2f}"),
+            ("Min landmark visibility", f"{dft['min_visibility']:.2f}"),
+            ("EAR closed-eye", f"{dft['ear_thr']:.2f}"),
+            ("PERCLOS problematic", f"{dft['perclos_thr']:.2f}"),
+        ]
+        items = "".join(
+            f'<li style="margin:0.55rem 0;display:flex;align-items:center;'
+            f'justify-content:space-between;gap:1.2rem;width:100%;">'
+            f'<span style="font-weight:600;flex:1;">{name}</span>'
+            f'<span style="background:#66bb6a;color:#fff;border-radius:6px;'
+            f'padding:0.05rem 0.5rem;font-weight:700;font-size:0.85rem;'
+            f'min-width:3.2rem;text-align:center;flex:none;">'
+            f'{value}</span></li>'
+            for name, value in rows
+        )
         st.markdown(
-            f"- Shoulder asymmetry: **{dft['shoulder_thr']:.1f}°**\n"
-            f"- Head lateral tilt: **{dft['head_tilt_thr']:.1f}°**\n"
-            f"- Forward-head proxy: **{dft['fhp_thr']:.2f}**\n"
-            f"- Minimum landmark visibility: **{dft['min_visibility']:.2f}**\n"
-            f"- EAR closed-eye: **{dft['ear_thr']:.2f}**\n"
-            f"- PERCLOS problematic: **{dft['perclos_thr']:.2f}**"
+            f'<ul style="list-style:none;padding-left:0;margin:0;color:#000;">'
+            f'{items}</ul>',
+            unsafe_allow_html=True,
         )
 
     # ---- 5. DATA ----------------------------------------------------------

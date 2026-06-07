@@ -127,6 +127,12 @@ def add_participant_normalized_features(
     return transformed, new_features
 
 
+TASK_SUBDIR = {
+    "binary": "binary",
+    "threeclass": "direct_3class",
+}
+
+
 def save_best_confusions(
     mode_dir: Path,
     task_prefix: str,
@@ -134,6 +140,8 @@ def save_best_confusions(
     results: pd.DataFrame,
     predictions: Mapping[str, Mapping[str, Mapping[str, List[str]]]],
 ) -> None:
+    task_dir = mode_dir / TASK_SUBDIR[task_prefix]
+    task_dir.mkdir(parents=True, exist_ok=True)
     for method in sorted(results["method"].unique()):
         baseline_best = select_best(results, exclude_baseline=False, method=method)
         baseline_pred = predictions_for(
@@ -146,7 +154,7 @@ def save_best_confusions(
             baseline_pred["y_pred"],
             labels,
             f"{task_prefix} {method} Participant-Normalized Baseline",
-            mode_dir
+            task_dir
             / f"{task_prefix.lower()}_{method.lower().replace(' ', '_')}_pn_baseline_confusion_matrix.png",
         )
 
@@ -161,7 +169,7 @@ def save_best_confusions(
             augmented_pred["y_pred"],
             labels,
             f"{task_prefix} {method} Participant-Normalized Best Augmented",
-            mode_dir
+            task_dir
             / f"{task_prefix.lower()}_{method.lower().replace(' ', '_')}_pn_best_augmented_confusion_matrix.png",
         )
 
@@ -174,7 +182,11 @@ def run_mode(
     random_state: int,
 ) -> pd.DataFrame:
     mode_dir = results_dir / mode
-    mode_dir.mkdir(parents=True, exist_ok=True)
+    binary_dir = mode_dir / "binary"
+    direct_dir = mode_dir / "direct_3class"
+    summary_dir = mode_dir / "summary"
+    for path in (mode_dir, binary_dir, direct_dir, summary_dir):
+        path.mkdir(parents=True, exist_ok=True)
     settings = augmentation_settings()
 
     binary_norm, binary_features = add_participant_normalized_features(
@@ -198,10 +210,10 @@ def run_mode(
         settings,
     )
     binary_results.to_csv(
-        mode_dir / "binary_participant_normalized_clustering_results.csv",
+        binary_dir / "binary_participant_normalized_clustering_results.csv",
         index=False,
     )
-    (mode_dir / "binary_participant_normalized_clustering_summary.txt").write_text(
+    (binary_dir / "binary_participant_normalized_clustering_summary.txt").write_text(
         build_clustering_summary(
             f"BINARY CLUSTERING PARTICIPANT-{mode.upper()} SUMMARY",
             binary_results,
@@ -228,10 +240,10 @@ def run_mode(
         settings,
     )
     three_results.to_csv(
-        mode_dir / "threeclass_participant_normalized_clustering_results.csv",
+        direct_dir / "threeclass_participant_normalized_clustering_results.csv",
         index=False,
     )
-    (mode_dir / "threeclass_participant_normalized_clustering_summary.txt").write_text(
+    (direct_dir / "threeclass_participant_normalized_clustering_summary.txt").write_text(
         build_clustering_summary(
             f"3-CLASS CLUSTERING PARTICIPANT-{mode.upper()} SUMMARY",
             three_results,
@@ -295,7 +307,7 @@ def run_mode(
             }
         )
     mode_summary = pd.DataFrame(rows)
-    mode_summary.to_csv(mode_dir / "participant_normalized_summary.csv", index=False)
+    mode_summary.to_csv(summary_dir / "participant_normalized_summary.csv", index=False)
     return mode_summary
 
 
@@ -371,13 +383,15 @@ def main() -> None:
             )
         )
 
+    summary_dir = results_dir / "summary"
+    summary_dir.mkdir(parents=True, exist_ok=True)
     comparison = pd.concat(summaries, ignore_index=True)
     comparison.to_csv(
-        results_dir / "participant_normalized_vs_raw_summary.csv",
+        summary_dir / "participant_normalized_vs_raw_summary.csv",
         index=False,
     )
     final_summary = build_final_summary(comparison)
-    (results_dir / "final_participant_normalized_summary.txt").write_text(
+    (summary_dir / "final_participant_normalized_summary.txt").write_text(
         final_summary + "\n",
         encoding="utf-8",
     )

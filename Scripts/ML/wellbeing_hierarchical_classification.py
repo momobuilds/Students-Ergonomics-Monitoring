@@ -1132,12 +1132,14 @@ def save_best_augmentation_confusion_matrices(
         baseline_selected = prediction_for_best(baseline_best, predictions)
         augmented_selected = prediction_for_best(augmented_best, predictions)
 
+        task_dir = result_dir / task_name
+        task_dir.mkdir(parents=True, exist_ok=True)
         save_confusion_matrix_png(
             baseline_selected["y_true"],
             baseline_selected["y_pred"],
             labels,
             f"{task_name} Baseline LOSO Confusion Matrix: {baseline_best['model']}",
-            result_dir / f"{task_name}_baseline_confusion_matrix.png",
+            task_dir / f"{task_name}_baseline_confusion_matrix.png",
         )
         save_confusion_matrix_png(
             augmented_selected["y_true"],
@@ -1147,7 +1149,7 @@ def save_best_augmentation_confusion_matrices(
                 f"{task_name} Best Augmented LOSO Confusion Matrix: "
                 f"{augmented_best['model']} ({augmented_best['augmentation_name']})"
             ),
-            result_dir / f"{task_name}_best_augmented_confusion_matrix.png",
+            task_dir / f"{task_name}_best_augmented_confusion_matrix.png",
         )
 
 
@@ -1419,13 +1421,21 @@ def run_data_augmentation_experiments(
         experiments,
     )
 
-    binary_results.to_csv(result_dir / "binary_augmentation_results.csv", index=False)
-    subtype_results.to_csv(result_dir / "subtype_augmentation_results.csv", index=False)
+    for sub in ("binary", "subtype", "hierarchical", "direct_3class", "summary"):
+        (result_dir / sub).mkdir(parents=True, exist_ok=True)
+    binary_results.to_csv(
+        result_dir / "binary" / "binary_augmentation_results.csv", index=False
+    )
+    subtype_results.to_csv(
+        result_dir / "subtype" / "subtype_augmentation_results.csv", index=False
+    )
     hierarchical_results.to_csv(
-        result_dir / "hierarchical_augmentation_results.csv", index=False
+        result_dir / "hierarchical" / "hierarchical_augmentation_results.csv",
+        index=False,
     )
     direct_results.to_csv(
-        result_dir / "direct_3class_augmentation_results.csv", index=False
+        result_dir / "direct_3class" / "direct_3class_augmentation_results.csv",
+        index=False,
     )
 
     task_results = {
@@ -1457,7 +1467,7 @@ def run_data_augmentation_experiments(
         experiments,
         reference_baselines,
     )
-    summary_table.to_csv(result_dir / "augmentation_summary.csv", index=False)
+    summary_table.to_csv(result_dir / "summary" / "augmentation_summary.csv", index=False)
 
     save_best_augmentation_confusion_matrices(
         result_dir,
@@ -1472,7 +1482,7 @@ def run_data_augmentation_experiments(
         task_labels,
         summary_table,
     )
-    (result_dir / "final_augmentation_summary.txt").write_text(
+    (result_dir / "summary" / "final_augmentation_summary.txt").write_text(
         summary_text + "\n",
         encoding="utf-8",
     )

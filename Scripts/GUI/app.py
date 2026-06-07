@@ -134,7 +134,8 @@ st.markdown(
 def _init_state():
     defaults = {
         "trained_model": None,
-        "model_signature": None,   # task/model/options signature
+        "model_signature": None,   # task/model/options signature of the trained model
+        "loaded_signature": None,  # signature of the loaded (not necessarily trained) model
         "model_info": None,        # metrics + training metadata for the active model
         "rt_running": False,       # webcam loop active?
         "history": [],             # list of per-window prediction dicts
@@ -433,32 +434,6 @@ def sidebar_controls() -> dict:
             "Unsupervised clustering augmentation is label-free and participant-wise."
         ),
     )
-    augmentation_factor = 1
-    noise_level = 0.02
-    if use_augmentation:
-        with st.sidebar.expander("Augmentation settings", expanded=True):
-            augmentation_factor = st.number_input(
-                "augmentation_factor",
-                min_value=1,
-                max_value=5,
-                value=1,
-                step=1,
-                help="Number of jittered copies per original training row.",
-            )
-            noise_level = st.number_input(
-                "noise_level",
-                min_value=0.001,
-                max_value=0.10,
-                value=0.02,
-                step=0.01,
-                format="%.3f",
-                help="Gaussian noise as a fraction of the participant/group feature std.",
-            )
-            st.caption(
-                f"Using factor={augmentation_factor}, noise={noise_level:.3f}. "
-                "Test/held-out data is never augmented."
-            )
-
     try:
         model_names = pipeline.available_models(task, learning)
     except Exception as exc:  # noqa: BLE001
@@ -518,24 +493,43 @@ def sidebar_controls() -> dict:
     if not subtype_model_name:
         subtype_model_name = manual_model_name
 
-    effective_augmentation_factor = int(augmentation_factor) if use_augmentation else 0
-    effective_noise_level = float(noise_level) if use_augmentation else 0.0
-    if use_best_model and use_augmentation and best_selection:
-        best_factor = best_selection.get("augmentation_factor")
-        best_noise = best_selection.get("noise_level")
-        if pd.notna(best_factor) and pd.notna(best_noise):
-            try:
-                best_factor = int(best_factor)
-                best_noise = float(best_noise)
-                if best_factor > 0 and best_noise > 0:
-                    effective_augmentation_factor = best_factor
-                    effective_noise_level = best_noise
-                    st.sidebar.caption(
-                        "Automatic best-result augmentation setting: "
-                        f"factor={best_factor}, noise={best_noise:.3f}."
-                    )
-            except (TypeError, ValueError):
-                pass
+    # Augmentation is not tuned from the GUI: when it is enabled we use the
+    # best saved augmentation setting for the selected model, so the trained
+    # model matches the metrics and confusion matrix shown (both come from that
+    # same best saved run). The exact factor/noise are read from the results.
+    effective_augmentation_factor = 0
+    effective_noise_level = 0.0
+    if use_augmentation:
+        if use_best_model:
+            aug_source = best_selection
+        elif manual_model_name:
+            aug_source = pipeline.lookup_model_metrics(
+                task,
+                learning,
+                manual_model_name,
+                hierarchical=hierarchical,
+                use_augmentation=True,
+            )
+        else:
+            aug_source = {}
+        try:
+            best_factor = int(aug_source.get("augmentation_factor"))
+            best_noise = float(aug_source.get("noise_level"))
+        except (TypeError, ValueError):
+            best_factor, best_noise = 0, 0.0
+        if best_factor > 0 and best_noise > 0:
+            effective_augmentation_factor = best_factor
+            effective_noise_level = best_noise
+            st.sidebar.caption(
+                f"Augmentation for **{selected_display_name}**: "
+                f"factor={best_factor}, noise={best_noise:.3f} "
+                "(best saved setting)."
+            )
+        else:
+            st.sidebar.caption(
+                "No saved augmented result for this model; "
+                "it will be trained without augmentation."
+            )
 
     signature = (
         task,
@@ -549,24 +543,71 @@ def sidebar_controls() -> dict:
         effective_augmentation_factor,
         effective_noise_level,
     )
+    def _current_model_metrics():
+        """Saved metrics + confusion matrix for the current selection."""
+        if use_best_model:
+            return best_selection
+        return pipeline.lookup_model_metrics(
+            task,
+            learning,
+            manual_model_name,
+            hierarchical=hierarchical,
+            use_augmentation=use_augmentation,
+        )
+
+    def _build_model_info(model_metrics, model=None):
+        """Assemble the model_info panel data (works with or without training)."""
+        return {
+            "task": "hierarchical" if hierarchical else task,
+            "learning": learning,
+            "model_name": selected_display_name,
+            "binary_model": binary_model_name,
+            "subtype_model": subtype_model_name if hierarchical else None,
+            "hierarchical": hierarchical,
+            "use_best_model": use_best_model,
+            "use_augmentation": use_augmentation,
+            "augmentation_factor": effective_augmentation_factor,
+            "noise_level": effective_noise_level,
+            "metrics": model_metrics.get("metrics", {}),
+            "results_source": model_metrics.get("results_source", ""),
+            "augmentation_name": model_metrics.get("augmentation_name", ""),
+            "confusion_matrix_path": model_metrics.get("confusion_matrix_path"),
+            "training_metadata": getattr(model, "training_metadata", {}) if model else {},
+        }
+
     is_trained = (st.session_state.trained_model is not None
                   and st.session_state.model_signature == signature)
 
-    train_label = "Model ready" if is_trained else "Train / load model"
-    if st.sidebar.button(
-        train_label,
+    # Two-step flow: "Load" selects the model and shows its saved metrics /
+    # confusion matrix; "Train" then fits it on data/supervised so it can run.
+    col_load, col_train = st.sidebar.columns(2)
+    if col_load.button(
+        "Select the model",
         use_container_width=True,
         disabled=selected_display_name is None,
     ):
+        try:
+            st.session_state.model_info = _build_model_info(_current_model_metrics())
+            st.session_state.loaded_signature = signature
+            # A freshly loaded selection is not trained yet.
+            st.session_state.trained_model = None
+            st.session_state.model_signature = None
+            st.rerun()
+        except Exception as exc:  # noqa: BLE001
+            st.session_state.model_info = None
+            st.session_state.loaded_signature = None
+            st.sidebar.error(f"Load error: {exc}")
+
+    is_loaded = (st.session_state.model_info is not None
+                 and st.session_state.loaded_signature == signature)
+
+    if col_train.button(
+        "Train the model",
+        use_container_width=True,
+        disabled=not is_loaded or is_trained,
+    ):
         with st.spinner(f"Training '{selected_display_name}' on data/supervised..."):
             try:
-                model_metrics = best_selection if use_best_model else pipeline.lookup_model_metrics(
-                    task,
-                    learning,
-                    manual_model_name,
-                    hierarchical=hierarchical,
-                    use_augmentation=use_augmentation,
-                )
                 if hierarchical:
                     model = pipeline.build_hierarchical_model(
                         binary_model_name,
@@ -586,36 +627,26 @@ def sidebar_controls() -> dict:
                     )
                 st.session_state.trained_model = model
                 st.session_state.model_signature = signature
-                st.session_state.model_info = {
-                    "task": "hierarchical" if hierarchical else task,
-                    "learning": learning,
-                    "model_name": selected_display_name,
-                    "binary_model": binary_model_name,
-                    "subtype_model": subtype_model_name if hierarchical else None,
-                    "hierarchical": hierarchical,
-                    "use_best_model": use_best_model,
-                    "use_augmentation": use_augmentation,
-                    "augmentation_factor": effective_augmentation_factor,
-                    "noise_level": effective_noise_level,
-                    "metrics": model_metrics.get("metrics", {}),
-                    "results_source": model_metrics.get("results_source", ""),
-                    "augmentation_name": model_metrics.get("augmentation_name", ""),
-                    "confusion_matrix_path": model_metrics.get("confusion_matrix_path"),
-                    "training_metadata": getattr(model, "training_metadata", {}),
-                }
+                st.session_state.model_info = _build_model_info(
+                    _current_model_metrics(), model=model
+                )
+                is_trained = True
                 st.sidebar.success(f"'{selected_display_name}' trained.")
             except Exception as exc:  # noqa: BLE001
                 st.session_state.trained_model = None
                 st.session_state.model_signature = None
-                st.session_state.model_info = None
                 st.sidebar.error(f"Training error: {exc}")
 
+    mode_txt = ("hierarchical (binary -> sleepy/stress)"
+                if hierarchical else f"{task} - {learning}")
     if is_trained:
-        mode_txt = ("hierarchical (binary -> sleepy/stress)"
-                    if hierarchical else f"{task} - {learning}")
-        st.sidebar.caption(f"Active: **{selected_display_name}** - {mode_txt}")
+        st.sidebar.caption(f"Active: **{selected_display_name}** - {mode_txt} (trained)")
+    elif is_loaded:
+        st.sidebar.caption(
+            f"Loaded: **{selected_display_name}** - {mode_txt}. Press **Train** to run it."
+        )
     elif st.session_state.trained_model is not None:
-        st.sidebar.warning("The selection changed: retrain the model.")
+        st.sidebar.warning("The selection changed: load and train again.")
 
     # ---- 2. SOURCE --------------------------------------------------------
     st.sidebar.header("Source")
@@ -705,6 +736,7 @@ def sidebar_controls() -> dict:
         "save_processed_data": save_processed_data,
         "hierarchical": hierarchical,
         "is_trained": is_trained,
+        "is_loaded": is_loaded,
         "source": source,
         "camera_index": int(camera_index),
         "use_wearable": use_wearable,
@@ -861,31 +893,27 @@ def _context_chip(col, label, value):
 
 def render_model_status(settings):
     """Show the active model, training options and saved evaluation metrics."""
-    if not settings["is_trained"]:
+    if not (settings["is_loaded"] or settings["is_trained"]):
         return
     info = st.session_state.get("model_info") or {}
     metrics = info.get("metrics") or {}
 
     with st.expander("Active model and evaluation context", expanded=True):
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         _context_chip(c1, "Task", str(info.get("task", settings["task"])))
         _context_chip(c2, "Learning", str(info.get("learning", settings["learning"])))
         _context_chip(c3, "Model", str(info.get("model_name", settings["model_name"])))
         _context_chip(c4, "Auto-best", "on" if info.get("use_best_model") else "off")
-
-        aug_text = "on" if info.get("use_augmentation") else "off"
-        if info.get("use_augmentation"):
-            aug_text += (
-                f" (factor={info.get('augmentation_factor')}, "
-                f"noise={info.get('noise_level'):.3f})"
-            )
-        st.write(f"**Data augmentation during training:** {aug_text}")
+        _context_chip(c5, "Augmentation", "on" if info.get("use_augmentation") else "off")
 
         if info.get("hierarchical"):
             st.write(
                 "**Hierarchical stages:** "
                 f"{info.get('binary_model')} -> {info.get('subtype_model')}"
             )
+
+        # extra breathing room between the green chips and the metrics row
+        st.markdown("<div style='height:2.2rem;'></div>", unsafe_allow_html=True)
 
         if metrics:
             cols = st.columns(len(metrics))
@@ -903,12 +931,6 @@ def render_model_status(settings):
         cm_path = info.get("confusion_matrix_path")
         if cm_path and Path(cm_path).exists():
             st.image(cm_path, caption="Saved confusion matrix", use_container_width=True)
-
-        st.warning(
-            "Proof-of-concept caution: the dataset contains only 4 participants, "
-            "so results should be interpreted with Leave-One-Subject-Out validation "
-            "and not as a finished clinical model."
-        )
 
 
 def render_banner(placeholder, prediction):
@@ -1451,11 +1473,14 @@ def main():
                "(normal / sleepy / stress) with the project models.")
 
     model = st.session_state.trained_model
-    if not settings["is_trained"]:
-        st.info("Choose the model options in the sidebar and press "
-                "**Train / load model** to begin.")
-    else:
+    if settings["is_loaded"] or settings["is_trained"]:
         render_model_status(settings)
+        if not settings["is_trained"]:
+            st.info("Model loaded. Press **Train the model** in the sidebar "
+                    "to make it ready for acquisition.")
+    else:
+        st.info("Choose the model options in the sidebar, press **Select the model** "
+                "to preview it, then **Train the model** to begin.")
     render_save_status()
 
     # --- REAL-TIME ---------------------------------------------------------

@@ -1558,6 +1558,8 @@ def save_confusion_matrix_png(
     title: str,
     out_path: Path,
 ) -> None:
+    import textwrap
+
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1565,7 +1567,7 @@ def save_confusion_matrix_png(
 
     cm = confusion_matrix(y_true, y_pred, labels=labels)
     fig, ax = plt.subplots(figsize=(7, 6))
-    image = ax.imshow(cm, interpolation="nearest", cmap="Blues")
+    image = ax.imshow(cm, interpolation="nearest", cmap="Greens")
     ax.figure.colorbar(image, ax=ax)
     ax.set(
         xticks=np.arange(len(labels)),
@@ -1574,9 +1576,13 @@ def save_confusion_matrix_png(
         yticklabels=labels,
         ylabel="True label",
         xlabel="Predicted label",
-        title=title,
     )
     plt.setp(ax.get_xticklabels(), rotation=30, ha="right", rotation_mode="anchor")
+    # Drop any "(...)" detail and wrap long titles so they stay readable.
+    import re
+
+    clean_title = re.sub(r"\s*\([^)]*\)", "", title).strip()
+    ax.set_title("\n".join(textwrap.wrap(clean_title, width=34)), fontsize=11)
     threshold = cm.max() / 2.0 if cm.size and cm.max() else 0
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):

@@ -144,7 +144,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results/unsupervised_augmentation"),
+        default=Path("results/unsupervised/augmentation"),
         help="Directory for augmentation experiment outputs.",
     )
     parser.add_argument(

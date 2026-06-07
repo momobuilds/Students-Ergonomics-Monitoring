@@ -235,20 +235,43 @@ def _result_paths(task: str, learning: str, hierarchical: bool, use_augmentation
     if learning == "supervised":
         if hierarchical:
             filename = "hierarchical_augmentation_results.csv"
-            baseline = RESULTS_DIR / "supervised" / "hierarchical" / "hierarchical_results.csv"
-            augmented = RESULTS_DIR / "data_augmentation" / filename
+            baseline = (
+                RESULTS_DIR
+                / "supervised"
+                / "baseline"
+                / "hierarchical"
+                / "hierarchical_results.csv"
+            )
+            augmented = RESULTS_DIR / "supervised" / "augmentation" / filename
             return [(augmented if use_augmentation else baseline, "hierarchical")]
 
         task_key = "direct_3class" if task == "3class" else task
-        baseline = RESULTS_DIR / "supervised" / task_key / f"{task_key}_results.csv"
-        augmented = RESULTS_DIR / "data_augmentation" / f"{task_key}_augmentation_results.csv"
+        baseline = (
+            RESULTS_DIR
+            / "supervised"
+            / "baseline"
+            / task_key
+            / f"{task_key}_results.csv"
+        )
+        augmented = (
+            RESULTS_DIR
+            / "supervised"
+            / "augmentation"
+            / f"{task_key}_augmentation_results.csv"
+        )
         return [(augmented if use_augmentation else baseline, task_key)]
 
     if task == "3class":
-        baseline = RESULTS_DIR / "unsupervised_3class" / "clustering_3group_results.csv"
+        baseline = (
+            RESULTS_DIR
+            / "unsupervised"
+            / "three_class"
+            / "clustering_3group_results.csv"
+        )
         augmented = (
             RESULTS_DIR
-            / "unsupervised_augmentation"
+            / "unsupervised"
+            / "augmentation"
             / "threeclass_clustering_augmentation_results.csv"
         )
         return [(augmented if use_augmentation else baseline, None)]
@@ -257,23 +280,29 @@ def _result_paths(task: str, learning: str, hierarchical: bool, use_augmentation
         return [
             (
                 RESULTS_DIR
-                / "unsupervised_augmentation"
+                / "unsupervised"
+                / "augmentation"
                 / "binary_clustering_augmentation_results.csv",
                 None,
             ),
             (
                 RESULTS_DIR
-                / "unsupervised_augmentation"
+                / "unsupervised"
+                / "augmentation"
                 / "anomaly_detection_loso_augmentation_results.csv",
                 "anomaly_detection_loso",
             ),
         ]
 
     return [
-        (RESULTS_DIR / "unsupervised" / "clustering_results.csv", None),
+        (
+            RESULTS_DIR / "unsupervised" / "baseline" / "clustering_results.csv",
+            None,
+        ),
         (
             RESULTS_DIR
-            / "unsupervised_binary"
+            / "unsupervised"
+            / "binary_loso"
             / "anomaly_detection_loso_results.csv",
             None,
         ),
@@ -291,7 +320,8 @@ def _confusion_matrix_path(
         if hierarchical:
             path = (
                 RESULTS_DIR
-                / "data_augmentation"
+                / "supervised"
+                / "augmentation"
                 / ("hierarchical_best_augmented_confusion_matrix.png"
                    if use_augmentation else "hierarchical_baseline_confusion_matrix.png")
             )
@@ -300,13 +330,15 @@ def _confusion_matrix_path(
             if use_augmentation:
                 path = (
                     RESULTS_DIR
-                    / "data_augmentation"
+                    / "supervised"
+                    / "augmentation"
                     / f"{task_key}_best_augmented_confusion_matrix.png"
                 )
             else:
                 path = (
                     RESULTS_DIR
                     / "supervised"
+                    / "baseline"
                     / task_key
                     / f"{task_key}_confusion_matrix.png"
                 )
@@ -327,23 +359,31 @@ def _confusion_matrix_path(
         if task == "3class":
             path = (
                 RESULTS_DIR
-                / "unsupervised_augmentation"
+                / "unsupervised"
+                / "augmentation"
                 / f"threeclass_{slug}_best_augmented_confusion_matrix.png"
             )
         elif model_name in {"K-Means", "Gaussian Mixture"}:
             path = (
                 RESULTS_DIR
-                / "unsupervised_augmentation"
+                / "unsupervised"
+                / "augmentation"
                 / f"binary_{slug}_best_augmented_confusion_matrix.png"
             )
         else:
             path = (
                 RESULTS_DIR
-                / "unsupervised_augmentation"
+                / "unsupervised"
+                / "augmentation"
                 / f"{slug}_loso_best_augmented_confusion_matrix.png"
             )
     elif task == "3class":
-        path = RESULTS_DIR / "unsupervised_3class" / f"{slug}_confusion_matrix.png"
+        path = (
+            RESULTS_DIR
+            / "unsupervised"
+            / "three_class"
+            / f"{slug}_confusion_matrix.png"
+        )
     else:
         anomaly_names = {
             "IsolationForest": "isolation_forest",
@@ -353,7 +393,12 @@ def _confusion_matrix_path(
         anomaly_slug = anomaly_names.get(model_name)
         if anomaly_slug is None:
             return None
-        path = RESULTS_DIR / "unsupervised" / f"{anomaly_slug}_confusion_matrix.png"
+        path = (
+            RESULTS_DIR
+            / "unsupervised"
+            / "baseline"
+            / f"{anomaly_slug}_confusion_matrix.png"
+        )
 
     return str(path) if path.exists() else None
 

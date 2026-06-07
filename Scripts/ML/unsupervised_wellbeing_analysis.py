@@ -145,7 +145,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results_unsupervised"),
+        default=Path("results/unsupervised/baseline"),
         help="Output directory for unsupervised results.",
     )
     parser.add_argument(
@@ -1174,7 +1174,7 @@ def main() -> None:
     data_dir = args.data_dir.expanduser().resolve()
     results_dir = args.results_dir.expanduser().resolve()
     results_dir.mkdir(parents=True, exist_ok=True)
-    loso_results_dir = Path("results") / "unsupervised_binary"
+    loso_results_dir = results_dir.parent / "binary_loso"
     loso_results_dir.mkdir(parents=True, exist_ok=True)
 
     mpl_config = results_dir / ".matplotlib"

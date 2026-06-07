@@ -116,17 +116,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--results-dir",
-        default=Path("results"),
+        default=Path("results/supervised/baseline"),
         type=Path,
-        help="Directory for CSV, PNG, and summary outputs. Default: results",
+        help="Directory for CSV, PNG, and summary outputs. Default: results/supervised/baseline",
     )
     parser.add_argument(
         "--augmentation-results-dir",
-        default=Path("results/data_augmentation"),
+        default=Path("results/supervised/augmentation"),
         type=Path,
         help=(
             "Directory for participant-aware augmentation experiment outputs. "
-            "Default: results/data_augmentation"
+            "Default: results/supervised/augmentation"
         ),
     )
     return parser.parse_args()

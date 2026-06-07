@@ -150,7 +150,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results/unsupervised_3class"),
+        default=Path("results/unsupervised/three_class"),
         help="Output directory for three-group unsupervised results.",
     )
     parser.add_argument(

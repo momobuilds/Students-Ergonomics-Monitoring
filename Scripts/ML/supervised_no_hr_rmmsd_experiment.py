@@ -77,7 +77,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results/no_hr_rmmsd"),
+        default=Path("results/supervised/no_hr_rmmsd"),
         help="Output directory for no-HR/RMMSD experiment results.",
     )
     return parser.parse_args()

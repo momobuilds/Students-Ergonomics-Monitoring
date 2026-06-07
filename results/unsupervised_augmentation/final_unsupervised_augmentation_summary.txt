@@ -1,0 +1,19 @@
+FINAL UNSUPERVISED AUGMENTATION SUMMARY
+================================================================================
+Clustering augmentation was performed label-free and participant-wise. Labels were used only after clustering to evaluate the discovered clusters.
+The anomaly detector was trained only on normal samples from training participants. Augmentation was applied only to normal training samples and never to the held-out participant.
+
+Baseline vs best augmented comparison:
+                  task           method    baseline_method  baseline_macro_f1  best_augmented_macro_f1  change_macro_f1  baseline_balanced_accuracy  best_augmented_balanced_accuracy  change_balanced_accuracy  best_augmentation_factor  best_noise_level best_augmentation_name
+     binary_clustering Gaussian Mixture   Gaussian Mixture              0.810                 0.871330         0.061330                       0.860                          0.907193                  0.047193                         2              0.02                  aug_4
+ threeclass_clustering Gaussian Mixture   Gaussian Mixture              0.815                 0.850016         0.035016                       0.822                          0.850677                  0.028677                         1              0.05                  aug_3
+anomaly_detection_loso  IsolationForest LocalOutlierFactor              0.806                 0.764580        -0.041420                       0.778                          0.738532                 -0.039468                         2              0.02                  aug_4
+
+- Binary clustering improved: macro F1 0.810 -> 0.871 (delta +0.061).
+- 3-class clustering improved: macro F1 0.815 -> 0.850 (delta +0.035).
+- LOSO anomaly detection got worse: macro F1 0.806 -> 0.765 (delta -0.041).
+- Best augmented setting by macro F1 was aug_4 for binary_clustering with Gaussian Mixture.
+- 3-class normal/sleepy/stress mixing changed from 97 off-diagonal errors to 97.
+- Normal recall in LOSO anomaly detection changed from 0.555 to 0.477.
+- Some results worsened versus the supplied baseline: anomaly_detection_loso macro delta -0.041, balanced accuracy delta -0.039.
+- Recommendation: Keep augmentation as an unsupervised robustness experiment, but present the no-augmentation baselines as the primary comparison because there are only 4 participants.

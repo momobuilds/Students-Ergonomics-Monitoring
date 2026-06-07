@@ -1,0 +1,67 @@
+LOSO ANOMALY DETECTION AUGMENTATION SUMMARY
+================================================================================
+The anomaly detector was trained only on normal samples from training participants. Augmentation was applied only to normal training samples and never to the held-out participant.
+
+Overall results:
+            method augmentation_name  augmentation_factor  noise_level  accuracy  balanced_accuracy  macro_f1  weighted_f1  recall_normal  recall_anomalous
+   IsolationForest          baseline                    0         0.00  0.801233           0.704128  0.724817     0.772409       0.408257               1.0
+       OneClassSVM          baseline                    0         0.00  0.682589           0.527523  0.455732     0.571055       0.055046               1.0
+LocalOutlierFactor          baseline                    0         0.00  0.850539           0.777523  0.806359     0.836715       0.555046               1.0
+   IsolationForest             aug_1                    1         0.01  0.807396           0.713303  0.735712     0.780886       0.426606               1.0
+       OneClassSVM             aug_1                    1         0.01  0.679507           0.522936  0.446663     0.564468       0.045872               1.0
+LocalOutlierFactor             aug_1                    1         0.01  0.791988           0.690367  0.708044     0.759423       0.380734               1.0
+   IsolationForest             aug_2                    1         0.02  0.796610           0.697248  0.716496     0.765958       0.394495               1.0
+       OneClassSVM             aug_2                    1         0.02  0.679507           0.522936  0.446663     0.564468       0.045872               1.0
+LocalOutlierFactor             aug_2                    1         0.02  0.790447           0.688073  0.705197     0.757226       0.376147               1.0
+   IsolationForest             aug_3                    1         0.05  0.788906           0.685780  0.702334     0.755019       0.371560               1.0
+       OneClassSVM             aug_3                    1         0.05  0.679507           0.522936  0.446663     0.564468       0.045872               1.0
+LocalOutlierFactor             aug_3                    1         0.05  0.790447           0.688073  0.705197     0.757226       0.376147               1.0
+   IsolationForest             aug_4                    2         0.02  0.824345           0.738532  0.764580     0.803509       0.477064               1.0
+       OneClassSVM             aug_4                    2         0.02  0.681048           0.525229  0.451215     0.567773       0.050459               1.0
+LocalOutlierFactor             aug_4                    2         0.02  0.694915           0.545872  0.490637     0.596504       0.091743               1.0
+
+Best augmented IsolationForest: aug_4 (factor=2, noise=0.02, macro F1=0.765, balanced accuracy=0.739, normal recall=0.477, anomalous recall=1.000).
+Confusion matrix:
+[[104 114]
+ [  0 431]]
+Classification report:
+              precision    recall  f1-score   support
+
+      normal       1.00      0.48      0.65       218
+   anomalous       0.79      1.00      0.88       431
+
+    accuracy                           0.82       649
+   macro avg       0.90      0.74      0.76       649
+weighted avg       0.86      0.82      0.80       649
+
+
+Best augmented LocalOutlierFactor: aug_1 (factor=1, noise=0.01, macro F1=0.708, balanced accuracy=0.690, normal recall=0.381, anomalous recall=1.000).
+Confusion matrix:
+[[ 83 135]
+ [  0 431]]
+Classification report:
+              precision    recall  f1-score   support
+
+      normal       1.00      0.38      0.55       218
+   anomalous       0.76      1.00      0.86       431
+
+    accuracy                           0.79       649
+   macro avg       0.88      0.69      0.71       649
+weighted avg       0.84      0.79      0.76       649
+
+
+Best augmented OneClassSVM: aug_4 (factor=2, noise=0.02, macro F1=0.451, balanced accuracy=0.525, normal recall=0.050, anomalous recall=1.000).
+Confusion matrix:
+[[ 11 207]
+ [  0 431]]
+Classification report:
+              precision    recall  f1-score   support
+
+      normal       1.00      0.05      0.10       218
+   anomalous       0.68      1.00      0.81       431
+
+    accuracy                           0.68       649
+   macro avg       0.84      0.53      0.45       649
+weighted avg       0.78      0.68      0.57       649
+
+

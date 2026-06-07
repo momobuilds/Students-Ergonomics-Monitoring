@@ -1,0 +1,44 @@
+DATA AUGMENTATION EXPERIMENT SUMMARY
+================================================================================
+Augmentation was applied only inside each LOSO training fold. Synthetic rows were generated separately for each video_source/class group using Gaussian jitter, and held-out participant rows were never augmented.
+
+Best setting per task:
+         task                 baseline_model  baseline_macro_f1           best_augmented_model             best_augmented_setting  best_augmented_macro_f1    delta
+       binary                  Random Forest           0.952279                  Random Forest groupwise_jitter_factor1_noise0.01                 0.957347 0.005068
+      subtype                  Random Forest           1.000000                  Random Forest groupwise_jitter_factor1_noise0.01                 1.000000 0.000000
+ hierarchical Random Forest -> Random Forest           0.957293 Random Forest -> Random Forest groupwise_jitter_factor1_noise0.01                 0.960325 0.003031
+direct_3class                  Random Forest           0.951070                  Random Forest groupwise_jitter_factor2_noise0.02                 0.957185 0.006115
+
+Interpretation:
+- Binary classification improved: macro F1 0.952 -> 0.957 (delta +0.005).
+- Hierarchical classification improved slightly: macro F1 0.957 -> 0.960 (delta +0.003).
+- Direct 3-class classification improved: macro F1 0.951 -> 0.957 (delta +0.006).
+- Weakest participant check, Mo macro F1: binary: 0.875 -> 0.888 (delta +0.013); hierarchical: 0.883 -> 0.895 (delta +0.013); direct_3class: 0.861 -> 0.861 (delta +0.000).
+- Abnormal -> normal errors in binary classification: 20 -> 18.
+- Stress -> normal errors: hierarchical 15 -> 13; direct 3-class 15 -> 15.
+- No selected best augmented setting reduced class-level F1.
+- Best augmented setting overall by macro F1 was groupwise_jitter_factor1_noise0.01 on subtype with Random Forest (macro F1=1.000).
+- Recommendation: Keep augmentation as an experimental comparison, but report it carefully because there are only 4 participants.
+
+Full best-per-experiment comparison:
+         task                  augmentation_name  augmentation_factor  noise_level  is_baseline                     best_model  accuracy  balanced_accuracy  macro_f1  weighted_f1  precision_macro  recall_macro  reference_baseline_macro_f1  macro_f1_delta_vs_reference
+       binary           baseline_no_augmentation                    0         0.00         True                  Random Forest  0.956857           0.958450  0.952279     0.957130         0.946975      0.958450                        0.952                     0.000279
+       binary groupwise_jitter_factor1_noise0.01                    1         0.01        False                  Random Forest  0.961479           0.963063  0.957347     0.961704         0.952365      0.963063                        0.952                     0.005347
+       binary groupwise_jitter_factor1_noise0.02                    1         0.02        False                  Random Forest  0.956857           0.957316  0.952178     0.957087         0.947644      0.957316                        0.952                     0.000178
+       binary groupwise_jitter_factor1_noise0.05                    1         0.05        False                  Random Forest  0.959938           0.959636  0.955498     0.960112         0.951751      0.959636                        0.952                     0.003498
+       binary groupwise_jitter_factor2_noise0.02                    2         0.02        False                  Random Forest  0.961479           0.961930  0.957256     0.961666         0.953076      0.961930                        0.952                     0.005256
+      subtype           baseline_no_augmentation                    0         0.00         True                  Random Forest  1.000000           1.000000  1.000000     1.000000         1.000000      1.000000                        1.000                     0.000000
+      subtype groupwise_jitter_factor1_noise0.01                    1         0.01        False                  Random Forest  1.000000           1.000000  1.000000     1.000000         1.000000      1.000000                        1.000                     0.000000
+      subtype groupwise_jitter_factor1_noise0.02                    1         0.02        False                  Random Forest  1.000000           1.000000  1.000000     1.000000         1.000000      1.000000                        1.000                     0.000000
+      subtype groupwise_jitter_factor1_noise0.05                    1         0.05        False                  Random Forest  0.997680           0.997706  0.997680     0.997680         0.997664      0.997706                        1.000                    -0.002320
+      subtype groupwise_jitter_factor2_noise0.02                    2         0.02        False                  Random Forest  0.997680           0.997706  0.997680     0.997680         0.997664      0.997706                        1.000                    -0.002320
+ hierarchical           baseline_no_augmentation                    0         0.00         True Random Forest -> Random Forest  0.956857           0.957007  0.957293     0.957074         0.958308      0.957007                        0.957                     0.000293
+ hierarchical groupwise_jitter_factor1_noise0.01                    1         0.01        False Random Forest -> Random Forest  0.959938           0.960065  0.960325     0.960129         0.961083      0.960065                        0.957                     0.003325
+ hierarchical groupwise_jitter_factor1_noise0.02                    1         0.02        False Random Forest -> Random Forest  0.958398           0.958536  0.958795     0.958587         0.959454      0.958536                        0.957                     0.001795
+ hierarchical groupwise_jitter_factor1_noise0.05                    1         0.05        False Random Forest -> Random Forest  0.959938           0.960065  0.960309     0.960113         0.960870      0.960065                        0.957                     0.003309
+ hierarchical groupwise_jitter_factor2_noise0.02                    2         0.02        False Random Forest -> Random Forest  0.956857           0.957007  0.957205     0.957003         0.957815      0.957007                        0.957                     0.000205
+direct_3class           baseline_no_augmentation                    0         0.00         True                  Random Forest  0.950693           0.950855  0.951070     0.950857         0.952044      0.950855                        0.951                     0.000070
+direct_3class groupwise_jitter_factor1_noise0.01                    1         0.01        False                  Random Forest  0.953775           0.953913  0.954060     0.953888         0.955907      0.953913                        0.951                     0.003060
+direct_3class groupwise_jitter_factor1_noise0.02                    1         0.02        False                  Random Forest  0.947612           0.947797  0.947948     0.947728         0.949052      0.947797                        0.951                    -0.003052
+direct_3class groupwise_jitter_factor1_noise0.05                    1         0.05        False                  Random Forest  0.952234           0.952384  0.952532     0.952348         0.954172      0.952384                        0.951                     0.001532
+direct_3class groupwise_jitter_factor2_noise0.02                    2         0.02        False                  Random Forest  0.956857           0.956971  0.957185     0.957019         0.958820      0.956971                        0.951                     0.006185

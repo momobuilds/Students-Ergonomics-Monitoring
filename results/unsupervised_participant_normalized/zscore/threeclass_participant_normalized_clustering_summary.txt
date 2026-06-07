@@ -1,0 +1,55 @@
+3-CLASS CLUSTERING PARTICIPANT-ZSCORE SUMMARY
+================================================================================
+          method augmentation_name  augmentation_factor  noise_level  silhouette  davies_bouldin  calinski_harabasz  adjusted_rand_index  normalized_mutual_info  accuracy  balanced_accuracy  macro_f1  weighted_f1  homogeneity  completeness  v_measure
+         K-Means          baseline                    0         0.00    0.360598        1.297458         258.113352             0.422393                0.443082  0.653313           0.655712  0.530469     0.529221     0.423671      0.464358   0.443082
+Gaussian Mixture          baseline                    0         0.00    0.347493        1.328425         246.774546             0.466025                0.507623  0.671803           0.672589  0.637573     0.637549     0.487904      0.529004   0.507623
+   Agglomerative          baseline                    0         0.00    0.340551        1.288502         242.220629             0.492370                0.542580  0.664099           0.666667  0.547299     0.546281     0.512925      0.575875   0.542580
+         K-Means             aug_1                    1         0.01    0.359653        1.298037         257.286434             0.422393                0.443082  0.653313           0.655712  0.530469     0.529221     0.423671      0.464358   0.443082
+Gaussian Mixture             aug_1                    1         0.01    0.346414        1.335301         245.889973             0.465325                0.507027  0.670262           0.671024  0.636346     0.636332     0.487718      0.527928   0.507027
+   Agglomerative             aug_1                    1         0.01    0.340045        1.288636         241.747389             0.492370                0.542580  0.664099           0.666667  0.547299     0.546281     0.512925      0.575875   0.542580
+         K-Means             aug_2                    1         0.02    0.359637        1.298083         257.228703             0.422393                0.443082  0.653313           0.655712  0.530469     0.529221     0.423671      0.464358   0.443082
+Gaussian Mixture             aug_2                    1         0.02    0.347426        1.336301         246.406473             0.461803                0.502944  0.670262           0.671024  0.635832     0.635796     0.483927      0.523516   0.502944
+   Agglomerative             aug_2                    1         0.02    0.340022        1.288711         241.689019             0.492370                0.542580  0.664099           0.666667  0.547299     0.546281     0.512925      0.575875   0.542580
+         K-Means             aug_3                    1         0.05    0.359635        1.298339         257.139797             0.422393                0.443082  0.653313           0.655712  0.530469     0.529221     0.423671      0.464358   0.443082
+Gaussian Mixture             aug_3                    1         0.05    0.349150        1.336531         247.409524             0.458376                0.499069  0.670262           0.671024  0.635337     0.635277     0.480325      0.519336   0.499069
+   Agglomerative             aug_3                    1         0.05    0.339981        1.289015         241.572613             0.492370                0.542580  0.664099           0.666667  0.547299     0.546281     0.512925      0.575875   0.542580
+         K-Means             aug_4                    2         0.02    0.359331        1.298082         256.994807             0.422393                0.443082  0.653313           0.655712  0.530469     0.529221     0.423671      0.464358   0.443082
+Gaussian Mixture             aug_4                    2         0.02    0.305548        1.721787         210.628106             0.839469                0.806266  0.942989           0.942851  0.942717     0.942666     0.805602      0.806932   0.806266
+   Agglomerative             aug_4                    2         0.02    0.339866        1.288548         241.567524             0.492370                0.542580  0.664099           0.666667  0.547299     0.546281     0.512925      0.575875   0.542580
+
+Best augmented Agglomerative: aug_1 (factor=1, noise=0.01, macro F1=0.547, balanced accuracy=0.667).
+Cluster vs true-label table for that setting:
+true_label  normal  sleepy  stress mapped_label
+cluster                                        
+0                0     165     164       sleepy
+1              218       0      17       normal
+2                0      48      37       sleepy
+Confusion matrix:
+[[218   0   0]
+ [  0 213   0]
+ [ 17 201   0]]
+
+Best augmented Gaussian Mixture: aug_4 (factor=2, noise=0.02, macro F1=0.943, balanced accuracy=0.943).
+Cluster vs true-label table for that setting:
+true_label  normal  sleepy  stress mapped_label
+cluster                                        
+0                0     197       5       sleepy
+1                0      16     197       stress
+2              218       0      16       normal
+Confusion matrix:
+[[218   0   0]
+ [  0 197  16]
+ [ 16   5 197]]
+
+Best augmented K-Means: aug_1 (factor=1, noise=0.01, macro F1=0.530, balanced accuracy=0.656).
+Cluster vs true-label table for that setting:
+true_label  normal  sleepy  stress mapped_label
+cluster                                        
+0              218       7      42       normal
+1                0     158     132       sleepy
+2                0      48      44       sleepy
+Confusion matrix:
+[[218   0   0]
+ [  7 206   0]
+ [ 42 176   0]]
+

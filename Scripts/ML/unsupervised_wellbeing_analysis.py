@@ -362,6 +362,7 @@ def evaluate_clustering(
     y_true: Sequence[str],
     results_dir: Path,
     table_filename: str,
+    cm_filename: str,
 ) -> Tuple[Dict[str, object], pd.DataFrame, List[str]]:
     mapping = majority_vote_mapping(y_true, cluster_ids)
     y_pred = mapped_labels(cluster_ids, mapping)
@@ -371,6 +372,14 @@ def evaluate_clustering(
     )
     table["mapped_label"] = [mapping[int(idx)] for idx in table.index]
     table.to_csv(results_dir / table_filename)
+
+    save_confusion_matrix_png(
+        y_true,
+        y_pred,
+        LABELS,
+        f"{method_name} Confusion Matrix (majority-vote mapping)",
+        results_dir / cm_filename,
+    )
 
     row: Dict[str, object] = {
         "method": method_name,
@@ -848,6 +857,7 @@ def save_visualizations(
     gmm_clusters: Sequence[int],
     results_dir: Path,
     random_state: int,
+    agglomerative_clusters: Optional[Sequence[int]] = None,
 ) -> Dict[str, bool]:
     pca_coords, tsne_coords, umap_coords = compute_embeddings(X_scaled, random_state)
     save_scatter_plot(
@@ -874,6 +884,15 @@ def save_visualizations(
         "PC1",
         "PC2",
     )
+    if agglomerative_clusters is not None:
+        save_scatter_plot(
+            pca_coords,
+            agglomerative_clusters,
+            "PCA colored by Agglomerative clusters",
+            results_dir / "pca_agglomerative_clusters.png",
+            "PC1",
+            "PC2",
+        )
     if tsne_coords is not None:
         save_scatter_plot(
             tsne_coords,
@@ -1201,6 +1220,11 @@ def main() -> None:
         "Gaussian Mixture": "gmm_cluster_label_table.csv",
         "Agglomerative": "agglomerative_cluster_label_table.csv",
     }
+    cm_filenames = {
+        "K-Means": "kmeans_confusion_matrix.png",
+        "Gaussian Mixture": "gmm_confusion_matrix.png",
+        "Agglomerative": "agglomerative_confusion_matrix.png",
+    }
     for method_name, cluster_ids in cluster_assignments.items():
         row, table, y_pred = evaluate_clustering(
             method_name,
@@ -1209,6 +1233,7 @@ def main() -> None:
             y_true,
             results_dir,
             table_filenames[method_name],
+            cm_filenames[method_name],
         )
         clustering_rows.append(row)
         cluster_tables[method_name] = table
@@ -1224,6 +1249,7 @@ def main() -> None:
         cluster_assignments["Gaussian Mixture"],
         results_dir,
         args.random_state,
+        agglomerative_clusters=cluster_assignments["Agglomerative"],
     )
 
     anomaly_results, anomaly_predictions = run_anomaly_detection(

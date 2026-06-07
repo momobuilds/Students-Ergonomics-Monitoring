@@ -1122,7 +1122,7 @@ def save_best_augmentation_confusion_matrices(
     task_predictions: Mapping[str, Mapping[str, Dict[str, List[str]]]],
     task_labels: Mapping[str, Sequence[str]],
 ) -> None:
-    for task_name in ["binary", "hierarchical", "direct_3class"]:
+    for task_name in ["binary", "subtype", "hierarchical", "direct_3class"]:
         results = task_results[task_name]
         labels = task_labels[task_name]
         predictions = task_predictions[task_name]

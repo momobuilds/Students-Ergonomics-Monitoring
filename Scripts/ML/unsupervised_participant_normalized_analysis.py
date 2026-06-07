@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results/unsupervised_participant_normalized"),
+        default=Path("results/unsupervised/participant_normalized"),
         help="Output directory for participant-normalized results.",
     )
     parser.add_argument(

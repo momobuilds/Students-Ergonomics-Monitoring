@@ -41,3 +41,6 @@ coverage/
 # Generated reports
 *.tmp
 ~$*
+
+# Matplotlib config caches inside results/
+results/**/.matplotlib/

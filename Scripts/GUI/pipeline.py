@@ -406,7 +406,18 @@ def _confusion_matrix_path(
             / "direct_3class"
             / f"{slug}_confusion_matrix.png"
         )
+    elif model_name in {"K-Means", "Gaussian Mixture"}:
+        # Binary clustering baselines: results/unsupervised/baseline/binary/
+        # {kmeans,gmm}_confusion_matrix.png
+        path = (
+            RESULTS_DIR
+            / "unsupervised"
+            / "baseline"
+            / "binary"
+            / f"{slug}_confusion_matrix.png"
+        )
     else:
+        # Binary anomaly-detection baselines use the full estimator names.
         anomaly_names = {
             "IsolationForest": "isolation_forest",
             "OneClassSVM": "oneclass_svm",

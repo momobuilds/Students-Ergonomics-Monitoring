@@ -42,5 +42,6 @@ coverage/
 *.tmp
 ~$*
 
-# Matplotlib config caches inside results/
-results/**/.matplotlib/
+# Track everything inside results/ (override the global ignores above)
+!results/
+!results/**

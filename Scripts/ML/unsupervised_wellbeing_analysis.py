@@ -1193,8 +1193,16 @@ def main() -> None:
     data_dir = args.data_dir.expanduser().resolve()
     results_dir = args.results_dir.expanduser().resolve()
     results_dir.mkdir(parents=True, exist_ok=True)
+    binary_dir = results_dir / "binary"
+    comparison_dir = results_dir / "comparison"
+    summary_dir = results_dir / "summary"
+    for path in (binary_dir, comparison_dir, summary_dir):
+        path.mkdir(parents=True, exist_ok=True)
     loso_results_dir = results_dir.parent / "binary_loso"
-    loso_results_dir.mkdir(parents=True, exist_ok=True)
+    loso_binary_dir = loso_results_dir / "binary"
+    loso_summary_dir = loso_results_dir / "summary"
+    for path in (loso_results_dir, loso_binary_dir, loso_summary_dir):
+        path.mkdir(parents=True, exist_ok=True)
 
     mpl_config = results_dir / ".matplotlib"
     mpl_config.mkdir(parents=True, exist_ok=True)
@@ -1231,7 +1239,7 @@ def main() -> None:
             np.asarray(cluster_ids),
             X_scaled,
             y_true,
-            results_dir,
+            binary_dir,
             table_filenames[method_name],
             cm_filenames[method_name],
         )
@@ -1240,14 +1248,14 @@ def main() -> None:
         cluster_predictions[method_name] = y_pred
 
     clustering_results = pd.DataFrame(clustering_rows)
-    clustering_results.to_csv(results_dir / "clustering_results.csv", index=False)
+    clustering_results.to_csv(binary_dir / "clustering_results.csv", index=False)
 
     visualization_status = save_visualizations(
         X_scaled,
         y_true,
         cluster_assignments["K-Means"],
         cluster_assignments["Gaussian Mixture"],
-        results_dir,
+        binary_dir,
         args.random_state,
         agglomerative_clusters=cluster_assignments["Agglomerative"],
     )
@@ -1256,10 +1264,10 @@ def main() -> None:
         normal_df,
         full_df,
         features,
-        results_dir,
+        binary_dir,
         args.random_state,
     )
-    anomaly_results.to_csv(results_dir / "anomaly_detection_results.csv", index=False)
+    anomaly_results.to_csv(binary_dir / "anomaly_detection_results.csv", index=False)
 
     if group_col is None:
         raise ValueError(
@@ -1270,15 +1278,15 @@ def main() -> None:
         full_df,
         features,
         group_col,
-        loso_results_dir,
+        loso_binary_dir,
         args.random_state,
     )
     loso_results.to_csv(
-        loso_results_dir / "anomaly_detection_loso_results.csv",
+        loso_binary_dir / "anomaly_detection_loso_results.csv",
         index=False,
     )
     loso_predictions.to_csv(
-        loso_results_dir / "anomaly_detection_loso_predictions.csv",
+        loso_binary_dir / "anomaly_detection_loso_predictions.csv",
         index=False,
     )
     loso_summary = build_loso_anomaly_summary(
@@ -1286,14 +1294,14 @@ def main() -> None:
         loso_predictions,
         anomaly_results,
     )
-    (loso_results_dir / "anomaly_detection_loso_summary.txt").write_text(
+    (loso_summary_dir / "anomaly_detection_loso_summary.txt").write_text(
         loso_summary + "\n",
         encoding="utf-8",
     )
 
     ablation_results = run_feature_ablation(normal_df, full_df, args.random_state)
     ablation_results.to_csv(
-        results_dir / "unsupervised_feature_ablation.csv",
+        comparison_dir / "unsupervised_feature_ablation.csv",
         index=False,
     )
 
@@ -1308,7 +1316,7 @@ def main() -> None:
     predictions_df["isolation_forest_prediction"] = anomaly_predictions["IsolationForest"]
     predictions_df["oneclass_svm_prediction"] = anomaly_predictions["OneClassSVM"]
     predictions_df["lof_prediction"] = anomaly_predictions["LocalOutlierFactor"]
-    predictions_df.to_csv(results_dir / "unsupervised_predictions.csv", index=False)
+    predictions_df.to_csv(binary_dir / "unsupervised_predictions.csv", index=False)
 
     dataset_lines = summarize_dataset(
         datasets,
@@ -1327,7 +1335,7 @@ def main() -> None:
         full_df,
         visualization_status,
     )
-    (results_dir / "final_unsupervised_summary.txt").write_text(
+    (summary_dir / "final_unsupervised_summary.txt").write_text(
         summary_text + "\n",
         encoding="utf-8",
     )

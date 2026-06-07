@@ -786,6 +786,11 @@ def save_best_method_confusions(
         "LocalOutlierFactor": "lof_loso_best_augmented_confusion_matrix.png",
     }
 
+    binary_dir = results_dir / "binary"
+    direct_dir = results_dir / "direct_3class"
+    binary_dir.mkdir(parents=True, exist_ok=True)
+    direct_dir.mkdir(parents=True, exist_ok=True)
+
     for method, filename in binary_files.items():
         best = select_best(binary_results, exclude_baseline=True, method=method)
         pred = predictions_for(binary_predictions, method, best["augmentation_name"])
@@ -794,7 +799,7 @@ def save_best_method_confusions(
             pred["y_pred"],
             BINARY_LABELS,
             f"Binary {method} Best Augmented Confusion Matrix",
-            results_dir / filename,
+            binary_dir / filename,
         )
 
     for method, filename in three_files.items():
@@ -805,7 +810,7 @@ def save_best_method_confusions(
             pred["y_pred"],
             THREECLASS_LABELS,
             f"3-Class {method} Best Augmented Confusion Matrix",
-            results_dir / filename,
+            direct_dir / filename,
         )
 
     for method, filename in anomaly_files.items():
@@ -816,7 +821,7 @@ def save_best_method_confusions(
             pred["y_pred"],
             BINARY_LABELS,
             f"LOSO {method} Best Augmented Confusion Matrix",
-            results_dir / filename,
+            binary_dir / filename,
         )
 
 
@@ -1163,6 +1168,12 @@ def main() -> None:
     data_dir = args.data_dir.expanduser().resolve()
     results_dir = args.results_dir.expanduser().resolve()
     results_dir.mkdir(parents=True, exist_ok=True)
+    binary_dir = results_dir / "binary"
+    direct_dir = results_dir / "direct_3class"
+    comparison_dir = results_dir / "comparison"
+    summary_dir = results_dir / "summary"
+    for path in (binary_dir, direct_dir, comparison_dir, summary_dir):
+        path.mkdir(parents=True, exist_ok=True)
     mpl_config = results_dir / ".matplotlib"
     mpl_config.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("MPLCONFIGDIR", str(mpl_config))
@@ -1183,10 +1194,10 @@ def main() -> None:
         settings,
     )
     binary_results.to_csv(
-        results_dir / "binary_clustering_augmentation_results.csv",
+        binary_dir / "binary_clustering_augmentation_results.csv",
         index=False,
     )
-    (results_dir / "binary_clustering_augmentation_summary.txt").write_text(
+    (binary_dir / "binary_clustering_augmentation_summary.txt").write_text(
         build_clustering_summary(
             "BINARY CLUSTERING AUGMENTATION SUMMARY",
             binary_results,
@@ -1207,10 +1218,10 @@ def main() -> None:
         settings,
     )
     three_results.to_csv(
-        results_dir / "threeclass_clustering_augmentation_results.csv",
+        direct_dir / "threeclass_clustering_augmentation_results.csv",
         index=False,
     )
-    (results_dir / "threeclass_clustering_augmentation_summary.txt").write_text(
+    (direct_dir / "threeclass_clustering_augmentation_summary.txt").write_text(
         build_clustering_summary(
             "3-CLASS CLUSTERING AUGMENTATION SUMMARY",
             three_results,
@@ -1230,14 +1241,14 @@ def main() -> None:
         )
     )
     anomaly_results.to_csv(
-        results_dir / "anomaly_detection_loso_augmentation_results.csv",
+        binary_dir / "anomaly_detection_loso_augmentation_results.csv",
         index=False,
     )
     anomaly_prediction_rows.to_csv(
-        results_dir / "anomaly_detection_loso_augmentation_predictions.csv",
+        binary_dir / "anomaly_detection_loso_augmentation_predictions.csv",
         index=False,
     )
-    (results_dir / "anomaly_detection_loso_augmentation_summary.txt").write_text(
+    (binary_dir / "anomaly_detection_loso_augmentation_summary.txt").write_text(
         build_anomaly_summary(anomaly_results) + "\n",
         encoding="utf-8",
     )
@@ -1281,7 +1292,7 @@ def main() -> None:
     ]
     feature_ablation = pd.concat(ablation_parts, ignore_index=True)
     feature_ablation.to_csv(
-        results_dir / "unsupervised_augmentation_feature_ablation.csv",
+        comparison_dir / "unsupervised_augmentation_feature_ablation.csv",
         index=False,
     )
 
@@ -1291,7 +1302,7 @@ def main() -> None:
         anomaly_results,
     )
     comparison.to_csv(
-        results_dir / "augmentation_vs_baseline_summary.csv",
+        summary_dir / "augmentation_vs_baseline_summary.csv",
         index=False,
     )
     final_summary = build_final_summary(
@@ -1302,7 +1313,7 @@ def main() -> None:
         three_predictions,
         anomaly_results,
     )
-    (results_dir / "final_unsupervised_augmentation_summary.txt").write_text(
+    (summary_dir / "final_unsupervised_augmentation_summary.txt").write_text(
         final_summary,
         encoding="utf-8",
     )

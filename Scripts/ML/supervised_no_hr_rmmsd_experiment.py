@@ -308,6 +308,8 @@ def save_task_confusion_matrices(
     predictions: Mapping[str, Dict[str, List[str]]],
     labels: Sequence[str],
 ) -> None:
+    task_dir = results_dir / task_name
+    task_dir.mkdir(parents=True, exist_ok=True)
     for variant in sorted(results["variant"].unique()):
         best = select_best_for_variant(results, variant)
         selected = predictions[str(best["prediction_key"])]
@@ -316,7 +318,7 @@ def save_task_confusion_matrices(
             selected["y_pred"],
             labels,
             f"{task_name} {variant}: {best['model']}",
-            results_dir / f"{task_name}_{variant}_best_confusion_matrix.png",
+            task_dir / f"{task_name}_{variant}_best_confusion_matrix.png",
         )
 
 
@@ -489,7 +491,9 @@ def main() -> None:
         "direct_3class": "direct_3class_no_hr_rmmsd_results.csv",
     }
     for task_name, results in task_results.items():
-        results.to_csv(results_dir / filenames[task_name], index=False)
+        task_dir = results_dir / task_name
+        task_dir.mkdir(parents=True, exist_ok=True)
+        results.to_csv(task_dir / filenames[task_name], index=False)
 
     save_task_confusion_matrices(
         results_dir,
@@ -520,11 +524,13 @@ def main() -> None:
         three_labels,
     )
 
+    summary_dir = results_dir / "summary"
+    summary_dir.mkdir(parents=True, exist_ok=True)
     summary = build_summary_table(task_results)
-    summary.to_csv(results_dir / "no_hr_rmmsd_summary.csv", index=False)
+    summary.to_csv(summary_dir / "no_hr_rmmsd_summary.csv", index=False)
 
     final_summary = build_final_summary(summary)
-    (results_dir / "final_no_hr_rmmsd_summary.txt").write_text(
+    (summary_dir / "final_no_hr_rmmsd_summary.txt").write_text(
         final_summary + "\n",
         encoding="utf-8",
     )

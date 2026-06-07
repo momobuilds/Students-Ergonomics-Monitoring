@@ -459,11 +459,6 @@ def sidebar_controls() -> dict:
                 "Test/held-out data is never augmented."
             )
 
-    if learning == "unsupervised":
-        st.sidebar.info(
-            "Unsupervised models use median imputation and StandardScaler by default."
-        )
-
     try:
         model_names = pipeline.available_models(task, learning)
     except Exception as exc:  # noqa: BLE001
@@ -847,6 +842,23 @@ def render_save_status():
         )
 
 
+def _context_chip(col, label, value):
+    """Compact label/value pair for the evaluation-context row.
+
+    Smaller and word-wrapping than st.metric, so long names like
+    "Gaussian Mixture" or "unsupervised" stay readable on two lines.
+    """
+    col.markdown(
+        f'<div style="line-height:1.25;">'
+        f'<div style="font-size:0.72rem;color:#5f6f5f;font-weight:600;'
+        f'text-transform:uppercase;letter-spacing:0.03em;">{label}</div>'
+        f'<div style="font-size:1.0rem;font-weight:700;color:#1b5e20;'
+        f'white-space:normal;word-break:break-word;">{value}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def render_model_status(settings):
     """Show the active model, training options and saved evaluation metrics."""
     if not settings["is_trained"]:
@@ -856,13 +868,10 @@ def render_model_status(settings):
 
     with st.expander("Active model and evaluation context", expanded=True):
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Task", str(info.get("task", settings["task"])))
-        c2.metric("Learning", str(info.get("learning", settings["learning"])))
-        c3.metric("Model", str(info.get("model_name", settings["model_name"])))
-        c4.metric(
-            "Auto-best",
-            "on" if info.get("use_best_model") else "off",
-        )
+        _context_chip(c1, "Task", str(info.get("task", settings["task"])))
+        _context_chip(c2, "Learning", str(info.get("learning", settings["learning"])))
+        _context_chip(c3, "Model", str(info.get("model_name", settings["model_name"])))
+        _context_chip(c4, "Auto-best", "on" if info.get("use_best_model") else "off")
 
         aug_text = "on" if info.get("use_augmentation") else "off"
         if info.get("use_augmentation"):
@@ -878,12 +887,6 @@ def render_model_status(settings):
                 f"{info.get('binary_model')} -> {info.get('subtype_model')}"
             )
 
-        if settings["learning"] == "unsupervised":
-            st.caption(
-                "Unsupervised models use SimpleImputer(strategy='median') "
-                "+ StandardScaler before clustering/anomaly detection."
-            )
-
         if metrics:
             cols = st.columns(len(metrics))
             labels = {
@@ -894,8 +897,6 @@ def render_model_status(settings):
             }
             for col, (key, value) in zip(cols, metrics.items()):
                 col.metric(labels.get(key, key), f"{value:.3f}")
-            if info.get("results_source"):
-                st.caption(f"Metrics source: {info['results_source']}")
         else:
             st.caption("No saved evaluation metrics were found for this exact choice.")
 

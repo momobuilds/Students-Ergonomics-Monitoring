@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -36,6 +37,10 @@ import pandas as pd
 import streamlit as st
 
 import pipeline
+
+
+WINDOW_SECONDS = 10
+PROCESSED_OUTPUT_DIR = pipeline.PROJECT_ROOT / "data" / "processed"
 
 
 # =============================================================================
@@ -129,10 +134,18 @@ st.markdown(
 def _init_state():
     defaults = {
         "trained_model": None,
-        "model_signature": None,   # (task, learning, name, hierarchical)
+        "model_signature": None,   # task/model/options signature
+        "model_info": None,        # metrics + training metadata for the active model
         "rt_running": False,       # webcam loop active?
         "history": [],             # list of per-window prediction dicts
         "window_metrics": [],      # list of full per-window feature dicts
+        "processed_records": [],   # rows prepared for data/processed export
+        "session_id": None,
+        "session_video_source": None,
+        "processed_output_path": None,
+        "last_saved_path": None,
+        "save_processed_data": True,
+        "processed_window_seconds": 60,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -141,20 +154,232 @@ def _init_state():
 _init_state()
 
 
+def _now_stamp():
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def _safe_filename_part(value):
+    text = str(value or "").strip()
+    safe = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in text)
+    return safe.strip("_") or "session"
+
+
+def _resolve_output_dir(output_dir):
+    path = Path(output_dir)
+    if not path.is_absolute():
+        path = pipeline.PROJECT_ROOT / path
+    return path
+
+
+def _unique_processed_path(output_dir, session_id=None):
+    output_dir = _resolve_output_dir(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    base_id = _safe_filename_part(session_id or _now_stamp())
+    candidate = output_dir / f"processed_{base_id}.csv"
+    counter = 2
+    while candidate.exists():
+        candidate = output_dir / f"processed_{base_id}_{counter}.csv"
+        counter += 1
+    return candidate
+
+
+def _majority_or_latest(series):
+    """Return the most common value, using the latest value to break ties."""
+    clean = series.dropna()
+    clean = clean[clean.astype(str) != ""]
+    if clean.empty:
+        return np.nan
+    counts = clean.value_counts()
+    tied = set(counts[counts == counts.max()].index)
+    for value in reversed(clean.tolist()):
+        if value in tied:
+            return value
+    return clean.iloc[-1]
+
+
+def _aggregate_to_minutes(df, window_seconds):
+    """Aggregate shorter analyzed windows into one-minute records.
+
+    The live GUI currently emits one row per 60-second window. This helper is
+    kept for future/offline inputs that may already be represented as 10-second
+    windows: six consecutive rows are folded into one minute, continuous values
+    are averaged, blink counts are summed, labels use majority vote with latest
+    as a tie-breaker, and probabilities are averaged.
+    """
+    if df.empty or window_seconds <= 0 or window_seconds >= 60:
+        return df
+
+    rows_per_minute = int(round(60 / window_seconds))
+    if rows_per_minute <= 1:
+        return df
+
+    work = df.copy()
+    work["_minute_group"] = np.arange(len(work)) // rows_per_minute
+
+    first_columns = {
+        "session_id",
+        "video_source",
+        "participant",
+        "model_type",
+        "selected_model",
+        "augmentation_used",
+        "best_model_auto_selected",
+        "true_label",
+    }
+    latest_columns = {"timestamp", "window_end"}
+    first_window_columns = {"window_start"}
+    count_columns = {"b_blink_count"}
+    probability_columns = {
+        "prediction_confidence",
+        "probability_normal",
+        "probability_abnormal",
+        "probability_sleepy",
+        "probability_stress",
+    }
+    label_columns = {
+        "binary_prediction",
+        "subtype_prediction",
+        "final_prediction",
+        "correct_prediction",
+    }
+
+    aggregations = {}
+    for column in work.columns:
+        if column == "_minute_group":
+            continue
+        if column in count_columns:
+            aggregations[column] = "sum"
+        elif column in probability_columns:
+            aggregations[column] = "mean"
+        elif column in pipeline.FEATURE_COLUMNS:
+            aggregations[column] = "mean"
+        elif column in first_columns:
+            aggregations[column] = "first"
+        elif column in first_window_columns:
+            aggregations[column] = "first"
+        elif column in latest_columns:
+            aggregations[column] = "last"
+        elif column in label_columns:
+            aggregations[column] = _majority_or_latest
+        else:
+            aggregations[column] = "last"
+
+    aggregated = work.groupby("_minute_group", sort=True).agg(aggregations).reset_index(drop=True)
+    if {"true_label", "final_prediction"}.issubset(aggregated.columns):
+        has_truth = aggregated["true_label"].notna() & (aggregated["true_label"].astype(str) != "")
+        if has_truth.any():
+            aggregated["correct_prediction"] = aggregated["correct_prediction"].astype(object)
+            aggregated.loc[has_truth, "correct_prediction"] = (
+                aggregated.loc[has_truth, "final_prediction"].astype(str)
+                == aggregated.loc[has_truth, "true_label"].astype(str)
+            )
+    return aggregated
+
+
+def save_processed_analysis(
+    analyzed_df,
+    output_dir="data/processed",
+    session_id=None,
+    aggregate_to_one_minute=True,
+    window_seconds=WINDOW_SECONDS,
+    output_path=None,
+):
+    """
+    Save analyzed model outputs to data/processed.
+    If aggregate_to_one_minute=True and input rows are shorter windows,
+    aggregate rows into 1-minute records before saving.
+    """
+    output_dir = _resolve_output_dir(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    processed = analyzed_df.copy()
+    if aggregate_to_one_minute:
+        processed = _aggregate_to_minutes(processed, window_seconds)
+
+    path = Path(output_path) if output_path is not None else _unique_processed_path(
+        output_dir, session_id=session_id
+    )
+    if not path.is_absolute():
+        path = pipeline.PROJECT_ROOT / path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    processed.to_csv(path, index=False)
+    return path
+
+
+def _begin_analysis_session(source, video_source=None):
+    session_id = f"{source}_{_now_stamp()}"
+    st.session_state.session_id = session_id
+    st.session_state.session_video_source = video_source or source
+    st.session_state.processed_records = []
+    st.session_state.history = []
+    st.session_state.window_metrics = []
+    st.session_state.charts = None
+    st.session_state.charts_show_hr = False
+    st.session_state.last_saved_path = None
+    st.session_state.processed_output_path = str(
+        _unique_processed_path(PROCESSED_OUTPUT_DIR, session_id=session_id)
+    )
+
+
+def _relative_project_path(path):
+    try:
+        return str(Path(path).resolve().relative_to(pipeline.PROJECT_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _save_processed_records(final=False):
+    if not st.session_state.get("save_processed_data", True):
+        return None
+    records = st.session_state.get("processed_records", [])
+    if not records:
+        return None
+
+    output_path = st.session_state.get("processed_output_path")
+    if output_path is None:
+        output_path = str(
+            _unique_processed_path(
+                PROCESSED_OUTPUT_DIR,
+                session_id=st.session_state.get("session_id"),
+            )
+        )
+        st.session_state.processed_output_path = output_path
+
+    saved_path = save_processed_analysis(
+        pd.DataFrame(records),
+        output_dir=PROCESSED_OUTPUT_DIR,
+        session_id=st.session_state.get("session_id"),
+        aggregate_to_one_minute=True,
+        window_seconds=int(st.session_state.get("processed_window_seconds", 60)),
+        output_path=output_path,
+    )
+    st.session_state.last_saved_path = str(saved_path)
+    if final:
+        st.session_state.processed_output_path = str(saved_path)
+    return saved_path
+
+
 def _start_realtime():
+    _begin_analysis_session("realtime", video_source="webcam")
     st.session_state.rt_running = True
 
 
 def _stop_realtime():
     st.session_state.rt_running = False
+    _save_processed_records(final=True)
 
 
 def _clear_data():
     """Drop the current acquisition's results (history, metrics, live charts)."""
     st.session_state.history = []
     st.session_state.window_metrics = []
+    st.session_state.processed_records = []
     st.session_state.charts = None
     st.session_state.charts_show_hr = False
+    st.session_state.last_saved_path = None
+    st.session_state.processed_output_path = None
+    st.session_state.session_id = None
+    st.session_state.session_video_source = None
 
 
 # =============================================================================
@@ -179,17 +404,6 @@ def sidebar_controls() -> dict:
                                "unsupervised": "Unsupervised"}[k],
     )
 
-    try:
-        model_names = pipeline.available_models(task, learning)
-    except Exception as exc:  # noqa: BLE001
-        st.sidebar.error(f"Could not read the models: {exc}")
-        model_names = []
-
-    model_name = st.sidebar.selectbox(
-        "Model", options=model_names,
-        help="The options change according to the two choices above.",
-    ) if model_names else None
-
     # Hierarchical refinement is only defined for binary + supervised:
     # after the normal/abnormal decision, a second model says sleepy vs stress.
     hierarchical = False
@@ -201,30 +415,210 @@ def sidebar_controls() -> dict:
                  "and, only for anomalous windows, a second sleepy-vs-stress model.",
         )
 
-    signature = (task, learning, model_name, hierarchical)
+    use_best_model = st.sidebar.checkbox(
+        "Use best model automatically",
+        value=True,
+        help=(
+            "Selects from saved evaluation results using macro F1 first, then "
+            "balanced accuracy, weighted F1 and accuracy."
+        ),
+    )
+
+    st.sidebar.header("Training options")
+    use_augmentation = st.sidebar.checkbox(
+        "Use data augmentation during training",
+        value=False,
+        help=(
+            "Supervised augmentation is participant-wise and class-wise. "
+            "Unsupervised clustering augmentation is label-free and participant-wise."
+        ),
+    )
+    augmentation_factor = 1
+    noise_level = 0.02
+    if use_augmentation:
+        with st.sidebar.expander("Augmentation settings", expanded=True):
+            augmentation_factor = st.number_input(
+                "augmentation_factor",
+                min_value=1,
+                max_value=5,
+                value=1,
+                step=1,
+                help="Number of jittered copies per original training row.",
+            )
+            noise_level = st.number_input(
+                "noise_level",
+                min_value=0.001,
+                max_value=0.10,
+                value=0.02,
+                step=0.01,
+                format="%.3f",
+                help="Gaussian noise as a fraction of the participant/group feature std.",
+            )
+            st.caption(
+                f"Using factor={augmentation_factor}, noise={noise_level:.3f}. "
+                "Test/held-out data is never augmented."
+            )
+
+    if learning == "unsupervised":
+        st.sidebar.info(
+            "Unsupervised models use median imputation and StandardScaler by default."
+        )
+
+    try:
+        model_names = pipeline.available_models(task, learning)
+    except Exception as exc:  # noqa: BLE001
+        st.sidebar.error(f"Could not read the models: {exc}")
+        model_names = []
+
+    best_selection = {}
+    if model_names:
+        try:
+            best_selection = pipeline.select_best_model(
+                task,
+                learning,
+                hierarchical=hierarchical,
+                use_augmentation=use_augmentation,
+            )
+        except Exception as exc:  # noqa: BLE001
+            st.sidebar.warning(f"Could not read saved model results: {exc}")
+            best_selection = {}
+
+    auto_model_name = best_selection.get("model_name")
+    auto_dropdown_name = (
+        best_selection.get("binary_model")
+        if hierarchical
+        else best_selection.get("model_name")
+    )
+    default_index = 0
+    if auto_dropdown_name in model_names:
+        default_index = model_names.index(auto_dropdown_name)
+
+    manual_model_name = st.sidebar.selectbox(
+        "Model",
+        options=model_names,
+        index=default_index,
+        disabled=use_best_model,
+        help="Disabled when automatic best-model selection is enabled.",
+    ) if model_names else None
+
+    if use_best_model and best_selection:
+        st.sidebar.success(
+            "Best model selected automatically based on macro F1 and balanced accuracy."
+        )
+        if auto_model_name:
+            st.sidebar.caption(f"Automatic choice: **{auto_model_name}**")
+
+    selected_display_name = auto_model_name if use_best_model else manual_model_name
+    binary_model_name = (
+        best_selection.get("binary_model") if use_best_model else manual_model_name
+    )
+    subtype_model_name = (
+        best_selection.get("subtype_model") if use_best_model else manual_model_name
+    )
+
+    if not selected_display_name:
+        selected_display_name = manual_model_name
+    if not binary_model_name:
+        binary_model_name = manual_model_name
+    if not subtype_model_name:
+        subtype_model_name = manual_model_name
+
+    effective_augmentation_factor = int(augmentation_factor) if use_augmentation else 0
+    effective_noise_level = float(noise_level) if use_augmentation else 0.0
+    if use_best_model and use_augmentation and best_selection:
+        best_factor = best_selection.get("augmentation_factor")
+        best_noise = best_selection.get("noise_level")
+        if pd.notna(best_factor) and pd.notna(best_noise):
+            try:
+                best_factor = int(best_factor)
+                best_noise = float(best_noise)
+                if best_factor > 0 and best_noise > 0:
+                    effective_augmentation_factor = best_factor
+                    effective_noise_level = best_noise
+                    st.sidebar.caption(
+                        "Automatic best-result augmentation setting: "
+                        f"factor={best_factor}, noise={best_noise:.3f}."
+                    )
+            except (TypeError, ValueError):
+                pass
+
+    signature = (
+        task,
+        learning,
+        selected_display_name,
+        binary_model_name,
+        subtype_model_name,
+        hierarchical,
+        use_best_model,
+        use_augmentation,
+        effective_augmentation_factor,
+        effective_noise_level,
+    )
     is_trained = (st.session_state.trained_model is not None
                   and st.session_state.model_signature == signature)
 
     train_label = "Model ready" if is_trained else "Train / load model"
-    if st.sidebar.button(train_label, use_container_width=True, disabled=model_name is None):
-        with st.spinner(f"Training '{model_name}' on data/supervised..."):
+    if st.sidebar.button(
+        train_label,
+        use_container_width=True,
+        disabled=selected_display_name is None,
+    ):
+        with st.spinner(f"Training '{selected_display_name}' on data/supervised..."):
             try:
+                model_metrics = best_selection if use_best_model else pipeline.lookup_model_metrics(
+                    task,
+                    learning,
+                    manual_model_name,
+                    hierarchical=hierarchical,
+                    use_augmentation=use_augmentation,
+                )
                 if hierarchical:
-                    model = pipeline.build_hierarchical_model(model_name)
+                    model = pipeline.build_hierarchical_model(
+                        binary_model_name,
+                        subtype_model_name,
+                        use_augmentation=use_augmentation,
+                        augmentation_factor=effective_augmentation_factor,
+                        noise_level=effective_noise_level,
+                    )
                 else:
-                    model = pipeline.build_and_train_model(task, learning, model_name)
+                    model = pipeline.build_and_train_model(
+                        task,
+                        learning,
+                        selected_display_name,
+                        use_augmentation=use_augmentation,
+                        augmentation_factor=effective_augmentation_factor,
+                        noise_level=effective_noise_level,
+                    )
                 st.session_state.trained_model = model
                 st.session_state.model_signature = signature
-                st.sidebar.success(f"'{model_name}' trained.")
+                st.session_state.model_info = {
+                    "task": "hierarchical" if hierarchical else task,
+                    "learning": learning,
+                    "model_name": selected_display_name,
+                    "binary_model": binary_model_name,
+                    "subtype_model": subtype_model_name if hierarchical else None,
+                    "hierarchical": hierarchical,
+                    "use_best_model": use_best_model,
+                    "use_augmentation": use_augmentation,
+                    "augmentation_factor": effective_augmentation_factor,
+                    "noise_level": effective_noise_level,
+                    "metrics": model_metrics.get("metrics", {}),
+                    "results_source": model_metrics.get("results_source", ""),
+                    "augmentation_name": model_metrics.get("augmentation_name", ""),
+                    "confusion_matrix_path": model_metrics.get("confusion_matrix_path"),
+                    "training_metadata": getattr(model, "training_metadata", {}),
+                }
+                st.sidebar.success(f"'{selected_display_name}' trained.")
             except Exception as exc:  # noqa: BLE001
                 st.session_state.trained_model = None
                 st.session_state.model_signature = None
+                st.session_state.model_info = None
                 st.sidebar.error(f"Training error: {exc}")
 
     if is_trained:
         mode_txt = ("hierarchical (binary -> sleepy/stress)"
                     if hierarchical else f"{task} - {learning}")
-        st.sidebar.caption(f"Active: **{model_name}** - {mode_txt}")
+        st.sidebar.caption(f"Active: **{selected_display_name}** - {mode_txt}")
     elif st.session_state.trained_model is not None:
         st.sidebar.warning("The selection changed: retrain the model.")
 
@@ -289,6 +683,13 @@ def sidebar_controls() -> dict:
 
     # ---- 5. DATA ----------------------------------------------------------
     st.sidebar.header("Data")
+    save_processed_data = st.sidebar.checkbox(
+        "Save processed analysis data",
+        value=True,
+        help="Save each analyzed one-minute window to data/processed/ as a CSV.",
+    )
+    st.session_state.save_processed_data = save_processed_data
+
     has_data = bool(st.session_state.history or st.session_state.window_metrics)
     st.sidebar.button(
         "Clear results", on_click=_clear_data, use_container_width=True,
@@ -300,7 +701,13 @@ def sidebar_controls() -> dict:
     return {
         "task": task,
         "learning": learning,
-        "model_name": model_name,
+        "model_name": selected_display_name,
+        "manual_model_name": manual_model_name,
+        "use_best_model": use_best_model,
+        "use_augmentation": use_augmentation,
+        "augmentation_factor": effective_augmentation_factor,
+        "noise_level": effective_noise_level,
+        "save_processed_data": save_processed_data,
         "hierarchical": hierarchical,
         "is_trained": is_trained,
         "source": source,
@@ -326,6 +733,181 @@ _STATE_CLASS = {
 def pretty_label(label):
     """Display name for a predicted label (the binary 'abnormal' -> 'anomalous')."""
     return "anomalous" if label == "abnormal" else label
+
+
+def _probability_from(proba, *labels):
+    for label in labels:
+        if label in proba:
+            return float(proba[label])
+    return np.nan
+
+
+def _prediction_confidence(prediction):
+    proba = prediction.get("proba") or {}
+    if proba:
+        return float(max(proba.values()))
+    for key in ("subtype_proba", "binary_proba"):
+        nested = prediction.get(key) or {}
+        if nested:
+            return float(max(nested.values()))
+    return np.nan
+
+
+def _processed_prediction_fields(prediction, settings):
+    label = pretty_label(prediction.get("label", ""))
+    binary_proba = prediction.get("binary_proba") or {}
+    subtype_proba = prediction.get("subtype_proba") or {}
+    proba = prediction.get("proba") or {}
+
+    binary_prediction = prediction.get("binary_prediction")
+    if binary_prediction is not None:
+        binary_prediction = pretty_label(binary_prediction)
+    elif settings["task"] == "binary":
+        binary_prediction = label
+    else:
+        binary_prediction = ""
+
+    subtype_prediction = prediction.get("subtype_prediction")
+    if subtype_prediction is None and label in {"sleepy", "stress"}:
+        subtype_prediction = label
+    if subtype_prediction is None:
+        subtype_prediction = ""
+
+    return {
+        "binary_prediction": binary_prediction,
+        "subtype_prediction": subtype_prediction,
+        "final_prediction": label,
+        "prediction_confidence": _prediction_confidence(prediction),
+        "probability_normal": _probability_from(binary_proba or proba, "normal"),
+        "probability_abnormal": _probability_from(
+            binary_proba or proba, "abnormal", "anomalous"
+        ),
+        "probability_sleepy": _probability_from(subtype_proba or proba, "sleepy"),
+        "probability_stress": _probability_from(subtype_proba or proba, "stress"),
+    }
+
+
+def _append_processed_record(
+    settings,
+    prediction,
+    feature_row,
+    window_start,
+    window_end,
+    video_source=None,
+    true_label=None,
+):
+    if not settings.get("save_processed_data", True):
+        return
+
+    model_info = st.session_state.get("model_info") or {}
+    final_prediction = pretty_label(prediction.get("label", ""))
+    normalized_true_label = (
+        pretty_label(str(true_label))
+        if true_label is not None and str(true_label) != ""
+        else None
+    )
+    correct_prediction = (
+        final_prediction == normalized_true_label
+        if normalized_true_label is not None
+        else np.nan
+    )
+
+    record = {
+        "session_id": st.session_state.get("session_id"),
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "window_start": window_start,
+        "window_end": window_end,
+        "video_source": video_source or st.session_state.get("session_video_source", ""),
+        "participant": video_source or st.session_state.get("session_video_source", ""),
+        "model_type": (
+            "hierarchical supervised"
+            if settings.get("hierarchical")
+            else f"{settings.get('task')} {settings.get('learning')}"
+        ),
+        "selected_model": model_info.get("model_name", settings.get("model_name", "")),
+        "augmentation_used": bool(settings.get("use_augmentation")),
+        "best_model_auto_selected": bool(settings.get("use_best_model")),
+    }
+    for feature in pipeline.FEATURE_COLUMNS:
+        record[feature] = feature_row.get(feature, np.nan)
+    record.update(_processed_prediction_fields(prediction, settings))
+    record["true_label"] = normalized_true_label or ""
+    record["correct_prediction"] = correct_prediction
+
+    st.session_state.processed_records.append(record)
+    _save_processed_records(final=False)
+
+
+def render_save_status():
+    saved_path = st.session_state.get("last_saved_path")
+    if saved_path and st.session_state.get("save_processed_data", True):
+        st.success(
+            "Processed analysis saved to "
+            f"{_relative_project_path(saved_path)}"
+        )
+
+
+def render_model_status(settings):
+    """Show the active model, training options and saved evaluation metrics."""
+    if not settings["is_trained"]:
+        return
+    info = st.session_state.get("model_info") or {}
+    metrics = info.get("metrics") or {}
+
+    with st.expander("Active model and evaluation context", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Task", str(info.get("task", settings["task"])))
+        c2.metric("Learning", str(info.get("learning", settings["learning"])))
+        c3.metric("Model", str(info.get("model_name", settings["model_name"])))
+        c4.metric(
+            "Auto-best",
+            "on" if info.get("use_best_model") else "off",
+        )
+
+        aug_text = "on" if info.get("use_augmentation") else "off"
+        if info.get("use_augmentation"):
+            aug_text += (
+                f" (factor={info.get('augmentation_factor')}, "
+                f"noise={info.get('noise_level'):.3f})"
+            )
+        st.write(f"**Data augmentation during training:** {aug_text}")
+
+        if info.get("hierarchical"):
+            st.write(
+                "**Hierarchical stages:** "
+                f"{info.get('binary_model')} -> {info.get('subtype_model')}"
+            )
+
+        if settings["learning"] == "unsupervised":
+            st.caption(
+                "Unsupervised models use SimpleImputer(strategy='median') "
+                "+ StandardScaler before clustering/anomaly detection."
+            )
+
+        if metrics:
+            cols = st.columns(len(metrics))
+            labels = {
+                "accuracy": "Accuracy",
+                "balanced_accuracy": "Balanced acc.",
+                "macro_f1": "Macro F1",
+                "weighted_f1": "Weighted F1",
+            }
+            for col, (key, value) in zip(cols, metrics.items()):
+                col.metric(labels.get(key, key), f"{value:.3f}")
+            if info.get("results_source"):
+                st.caption(f"Metrics source: {info['results_source']}")
+        else:
+            st.caption("No saved evaluation metrics were found for this exact choice.")
+
+        cm_path = info.get("confusion_matrix_path")
+        if cm_path and Path(cm_path).exists():
+            st.image(cm_path, caption="Saved confusion matrix", use_container_width=True)
+
+        st.warning(
+            "Proof-of-concept caution: the dataset contains only 4 participants, "
+            "so results should be interpreted with Leave-One-Subject-Out validation "
+            "and not as a finished clinical model."
+        )
 
 
 def render_banner(placeholder, prediction):
@@ -569,6 +1151,9 @@ def run_realtime(model, settings):
     posture_config = mods["posture_config"]
     overlay = mods["overlay"]
     window_size = posture_config.WINDOW_SIZE
+    st.session_state.processed_window_seconds = int(window_size)
+    if st.session_state.get("session_id") is None:
+        _begin_analysis_session("realtime", video_source="webcam")
 
     pose = mp.solutions.pose.Pose(
         static_image_mode=False,
@@ -658,6 +1243,14 @@ def run_realtime(model, settings):
                         "state": pretty_label(prediction["label"]),
                         **feature_row,
                     })
+                    _append_processed_record(
+                        settings,
+                        prediction,
+                        feature_row,
+                        window_start=round(window_start - t0, 2),
+                        window_end=round(now - t0, 2),
+                        video_source="webcam",
+                    )
                 posture_fe.reset()
                 blink_fe.reset()
                 window_start = now
@@ -720,6 +1313,7 @@ def run_video(model, settings, video_path, heart):
     posture_config = mods["posture_config"]
     overlay = mods["overlay"]
     window_size = posture_config.WINDOW_SIZE
+    st.session_state.processed_window_seconds = int(window_size)
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -805,6 +1399,14 @@ def run_video(model, settings, video_path, heart):
                         "state": pretty_label(prediction["label"]),
                         **feature_row,
                     })
+                    _append_processed_record(
+                        settings,
+                        prediction,
+                        feature_row,
+                        window_start=round(minute_start, 2),
+                        window_end=round(t, 2),
+                        video_source=st.session_state.get("session_video_source", "video"),
+                    )
                 minute_index += 1
                 posture_fe.reset()
                 blink_fe.reset()
@@ -851,6 +1453,9 @@ def main():
     if not settings["is_trained"]:
         st.info("Choose the model options in the sidebar and press "
                 "**Train / load model** to begin.")
+    else:
+        render_model_status(settings)
+    render_save_status()
 
     # --- REAL-TIME ---------------------------------------------------------
     if settings["source"] == "realtime":
@@ -880,14 +1485,15 @@ def main():
 
         if st.button("Analyse video", use_container_width=True,
                      disabled=not settings["is_trained"] or video_file is None):
-            st.session_state.history = []  # fresh log for this video
-            st.session_state.window_metrics = []  # fresh per-window metrics
+            _begin_analysis_session("video", video_source=video_file.name)
             heart = load_heart_csv(heart_file)
             with tempfile.NamedTemporaryFile(delete=False,
                                              suffix=Path(video_file.name).suffix) as tmp:
                 tmp.write(video_file.read())
                 tmp_path = tmp.name
             run_video(model, settings, tmp_path, heart)
+            _save_processed_records(final=True)
+            render_save_status()
         else:
             show_persisted_charts()
 

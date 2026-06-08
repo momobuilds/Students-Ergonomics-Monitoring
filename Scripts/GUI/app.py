@@ -36,6 +36,7 @@ import pandas as pd
 import streamlit as st
 
 import pipeline
+from collections import deque
 
 
 # =============================================================================
@@ -120,6 +121,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+_ecg_buffer: deque = deque(maxlen=250 * 6)
 
 
 # =============================================================================
@@ -481,15 +483,16 @@ def make_chart_row(show_hr: bool, charts: "LiveCharts"):
     specs = [("Eyes - EAR", charts.eye_df()),
              ("Posture angles (deg)", charts.angles_df()),
              ("Forward-head proxy (ratio)", charts.fhp_df())]
-    if show_hr:
-        specs.append(("Heart rate (bpm)", charts.hr_df()))
-    cols = st.columns(len(specs))
+    cols = st.columns(4 if show_hr else 3)
     objs = []
-    for col, (caption, frame) in zip(cols, specs):
+    for col, (caption, frame) in zip(cols[:3], specs):
         col.caption(caption)
         objs.append(col.line_chart(_empty_like(frame), height=200))
-    if not show_hr:
-        objs.append(None)   # keep a 4-slot shape (ear, angles, fhp, hr)
+    if show_hr:
+        cols[3].caption("Heart rate (bpm)")
+        objs.append(cols[3].empty())   # <-- empty placeholder, not line_chart
+    else:
+        objs.append(None)
     return tuple(objs)
 
 
@@ -501,7 +504,11 @@ def push_charts(chart_objs, charts: "LiveCharts"):
     angles_c.add_rows(rows["angles"])
     fhp_c.add_rows(rows["fhp"])
     if hr_c is not None:
-        hr_c.add_rows(rows["hr"])
+        bpm = rows["hr"]["HR (bpm)"].iloc[-1]
+        if not np.isnan(bpm):
+            _ecg_buffer.extend(bpm_to_ecg_chunk(bpm))
+            ecg_df = pd.DataFrame({"HR (bpm)": list(_ecg_buffer)})
+            hr_c.line_chart(ecg_df, height=200)
 
 
 def show_persisted_charts():
@@ -537,6 +544,25 @@ def metrics_html(ear, posture_ok, face, hr_live, hr_on, p_count, b_count, remain
     </ul>
     """
 
+def ecg_beat(n_samples: int) -> np.ndarray:
+    t = np.linspace(0, 1, n_samples)
+    r  =  1.00 * np.exp(-((t - 0.45) ** 2) / (2 * 0.018 ** 2))
+    s  = -0.15 * np.exp(-((t - 0.52) ** 2) / (2 * 0.010 ** 2))
+    tw =  0.25 * np.exp(-((t - 0.72) ** 2) / (2 * 0.045 ** 2))
+    return r + s + tw
+
+def bpm_to_ecg_chunk(bpm: float, sample_rate: int = 250) -> np.ndarray:
+    rng = np.random.default_rng()
+    samples_per_beat = int(sample_rate * 60 / bpm)
+    chunk = np.zeros(sample_rate)
+    pos = 0
+    while pos < len(chunk):
+        rr = int(samples_per_beat * rng.uniform(0.97, 1.03))
+        if pos + rr > len(chunk):
+            break
+        chunk[pos:pos + rr] = ecg_beat(rr)
+        pos += rr
+    return chunk
 
 # =============================================================================
 # REAL-TIME ACQUISITION

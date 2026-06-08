@@ -1,0 +1,790 @@
+SUPERVISED SENSOR ABLATION REPORT
+================================================================================
+
+Date: 2026-06-08 00:25:57
+Model: Random Forest (Pipeline: SimpleImputer median + RandomForestClassifier).
+Hierarchical task: Random Forest -> Random Forest (binary stage then subtype stage).
+Cross-validation: Leave-One-Subject-Out on group column = video_source.
+Random state: 42.
+
+Sensor groups:
+  - Posture (camera body): 9 features -> p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct
+  - Blink   (camera face): 7 features -> b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std
+  - Heart   (wearable)   : 2 features -> HR, RMMSD
+
+Scenarios:
+  full  : train AND test with all 18 features. Reference baseline per task.
+  clean : train AND test using only the features of the kept sensors. This is the realistic 'we just don't have this sensor' setup.
+  masked: train with all 18 features, then set the excluded-sensor columns to NaN at test time so the training-fold SimpleImputer fills them with the training median. Deployment-mismatch stress test.
+
+FULL reference (all 18 features) per task:
+task           macro_f1  bal_acc  accuracy  weighted_f1
+-------------  --------  -------  --------  -----------
+binary         0.952     0.958    0.957     0.957      
+subtype        1.000     1.000    1.000     1.000      
+hierarchical   0.957     0.957    0.957     0.957      
+direct_3class  0.951     0.951    0.951     0.951      
+
+================================================================================
+CONFIGURATION: keep_posture_blink
+Keep Posture + Blink  /  Exclude Heart
+Kept features (16): p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct, b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std
+Excluded features (2): HR, RMMSD
+================================================================================
+
+-- TASK: binary --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.952     0.958    0.957     0.957        —            —          
+CLEAN (16)   0.954     0.961    0.958     0.959        +0.002       +0.002     
+MASKED (18)  0.952     0.958    0.957     0.957        +0.000       +0.000     
+
+Confusion matrix - FULL (reference):
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      210 |        8
+abnormal    |       20 |      411
+
+Confusion matrix - CLEAN:
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      211 |        7
+abnormal    |       20 |      411
+
+Confusion matrix - MASKED:
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      210 |        8
+abnormal    |       20 |      411
+
+-- TASK: subtype --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    1.000     1.000    1.000     1.000        —            —          
+CLEAN (16)   0.693     0.697    0.696     0.693        -0.307       -0.303     
+MASKED (18)  0.662     0.677    0.680     0.663        -0.338       -0.323     
+
+Confusion matrix - FULL (reference):
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    213 |      0
+stress      |      0 |    218
+
+Confusion matrix - CLEAN:
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    170 |     43
+stress      |     88 |    130
+
+Confusion matrix - MASKED:
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |     97 |    116
+stress      |     22 |    196
+
+-- TASK: hierarchical --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.957     0.957    0.957     0.957        —            —          
+CLEAN (16)   0.763     0.769    0.769     0.763        -0.195       -0.188     
+MASKED (18)  0.749     0.760    0.763     0.750        -0.209       -0.197     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    210 |      1 |      7
+sleepy      |      5 |    208 |      0
+stress      |     15 |      0 |    203
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    211 |      3 |      4
+sleepy      |      5 |    167 |     41
+stress      |     15 |     82 |    121
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    210 |      0 |      8
+sleepy      |      5 |     94 |    114
+stress      |     15 |     12 |    191
+
+-- TASK: direct_3class --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.951     0.951    0.951     0.951        —            —          
+CLEAN (16)   0.750     0.756    0.757     0.750        -0.201       -0.194     
+MASKED (18)  0.654     0.663    0.664     0.655        -0.297       -0.288     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    209 |      1 |      8
+sleepy      |      6 |    207 |      0
+stress      |     15 |      2 |    201
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    212 |      3 |      3
+sleepy      |      5 |    159 |     49
+stress      |     19 |     79 |    120
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    213 |      0 |      5
+sleepy      |      7 |    106 |    100
+stress      |     28 |     78 |    112
+
+Interpretation:
+  - Removing Heart hurts macro F1 most on: subtype (delta -0.307), hierarchical (delta -0.195), direct_3class (delta -0.201).
+  - Training only on the kept sensors (clean) beats train-with-all-then-mask on: subtype, hierarchical, direct_3class.
+
+================================================================================
+CONFIGURATION: keep_posture_heart
+Keep Posture + Heart  /  Exclude Blink
+Kept features (11): p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct, HR, RMMSD
+Excluded features (7): b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std
+================================================================================
+
+-- TASK: binary --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.952     0.958    0.957     0.957        —            —          
+CLEAN (11)   0.957     0.961    0.961     0.962        +0.005       +0.002     
+MASKED (18)  0.957     0.956    0.961     0.961        +0.005       -0.002     
+
+Confusion matrix - FULL (reference):
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      210 |        8
+abnormal    |       20 |      411
+
+Confusion matrix - CLEAN:
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      209 |        9
+abnormal    |       16 |      415
+
+Confusion matrix - MASKED:
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      205 |       13
+abnormal    |       12 |      419
+
+-- TASK: subtype --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    1.000     1.000    1.000     1.000        —            —          
+CLEAN (11)   0.998     0.998    0.998     0.998        -0.002       -0.002     
+MASKED (18)  0.998     0.998    0.998     0.998        -0.002       -0.002     
+
+Confusion matrix - FULL (reference):
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    213 |      0
+stress      |      0 |    218
+
+Confusion matrix - CLEAN:
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    213 |      0
+stress      |      1 |    217
+
+Confusion matrix - MASKED:
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    213 |      0
+stress      |      1 |    217
+
+-- TASK: hierarchical --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.957     0.957    0.957     0.957        —            —          
+CLEAN (11)   0.960     0.960    0.960     0.960        +0.003       +0.003     
+MASKED (18)  0.960     0.960    0.960     0.960        +0.003       +0.003     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    210 |      1 |      7
+sleepy      |      5 |    208 |      0
+stress      |     15 |      0 |    203
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    209 |      0 |      9
+sleepy      |      4 |    209 |      0
+stress      |     12 |      1 |    205
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    205 |      2 |     11
+sleepy      |      1 |    212 |      0
+stress      |     11 |      1 |    206
+
+-- TASK: direct_3class --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.951     0.951    0.951     0.951        —            —          
+CLEAN (11)   0.959     0.959    0.958     0.958        +0.008       +0.008     
+MASKED (18)  0.965     0.965    0.965     0.965        +0.014       +0.014     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    209 |      1 |      8
+sleepy      |      6 |    207 |      0
+stress      |     15 |      2 |    201
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    209 |      1 |      8
+sleepy      |      3 |    210 |      0
+stress      |     14 |      1 |    203
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    209 |      1 |      8
+sleepy      |      1 |    212 |      0
+stress      |     12 |      1 |    205
+
+Interpretation:
+  - Surprisingly improves on: direct_3class (delta +0.008).
+  - Imputing the removed sensors at test time (masked) is better on: direct_3class.
+
+================================================================================
+CONFIGURATION: keep_blink_heart
+Keep Blink + Heart  /  Exclude Posture
+Kept features (9): b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std, HR, RMMSD
+Excluded features (9): p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct
+================================================================================
+
+-- TASK: binary --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.952     0.958    0.957     0.957        —            —          
+CLEAN (9)    0.859     0.862    0.874     0.874        -0.093       -0.097     
+MASKED (18)  0.399     0.500    0.664     0.530        -0.553       -0.458     
+
+Confusion matrix - FULL (reference):
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      210 |        8
+abnormal    |       20 |      411
+
+Confusion matrix - CLEAN:
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      180 |       38
+abnormal    |       44 |      387
+
+Confusion matrix - MASKED:
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |        0 |      218
+abnormal    |        0 |      431
+
+-- TASK: subtype --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    1.000     1.000    1.000     1.000        —            —          
+CLEAN (9)    0.981     0.982    0.981     0.981        -0.019       -0.018     
+MASKED (18)  0.995     0.995    0.995     0.995        -0.005       -0.005     
+
+Confusion matrix - FULL (reference):
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    213 |      0
+stress      |      0 |    218
+
+Confusion matrix - CLEAN:
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    212 |      1
+stress      |      7 |    211
+
+Confusion matrix - MASKED:
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    212 |      1
+stress      |      1 |    217
+
+-- TASK: hierarchical --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.957     0.957    0.957     0.957        —            —          
+CLEAN (9)    0.864     0.863    0.863     0.864        -0.094       -0.094     
+MASKED (18)  0.530     0.664    0.661     0.528        -0.427       -0.293     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    210 |      1 |      7
+sleepy      |      5 |    208 |      0
+stress      |     15 |      0 |    203
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    180 |     30 |      8
+sleepy      |     23 |    189 |      1
+stress      |     21 |      6 |    191
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |      0 |     91 |    127
+sleepy      |      0 |    212 |      1
+stress      |      0 |      1 |    217
+
+-- TASK: direct_3class --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.951     0.951    0.951     0.951        —            —          
+CLEAN (9)    0.879     0.878    0.878     0.879        -0.072       -0.072     
+MASKED (18)  0.535     0.662    0.659     0.533        -0.416       -0.289     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    209 |      1 |      8
+sleepy      |      6 |    207 |      0
+stress      |     15 |      2 |    201
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    184 |     21 |     13
+sleepy      |     22 |    190 |      1
+stress      |     19 |      3 |    196
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |      0 |     50 |    168
+sleepy      |      0 |    211 |      2
+stress      |      0 |      1 |    217
+
+Interpretation:
+  - Removing Posture hurts macro F1 most on: binary (delta -0.093), hierarchical (delta -0.094), direct_3class (delta -0.072).
+  - Smaller drops also on: subtype (delta -0.019).
+  - Clean wins on binary, hierarchical, direct_3class; masked wins on subtype.
+
+================================================================================
+CONFIGURATION: keep_posture
+Keep Posture  /  Exclude Blink + Heart
+Kept features (9): p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct
+Excluded features (9): b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std, HR, RMMSD
+================================================================================
+
+-- TASK: binary --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.952     0.958    0.957     0.957        —            —          
+CLEAN (9)    0.950     0.954    0.955     0.955        -0.002       -0.005     
+MASKED (18)  0.957     0.956    0.961     0.961        +0.005       -0.002     
+
+Confusion matrix - FULL (reference):
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      210 |        8
+abnormal    |       20 |      411
+
+Confusion matrix - CLEAN:
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      207 |       11
+abnormal    |       18 |      413
+
+Confusion matrix - MASKED:
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      205 |       13
+abnormal    |       12 |      419
+
+-- TASK: subtype --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    1.000     1.000    1.000     1.000        —            —          
+CLEAN (9)    0.579     0.591    0.589     0.579        -0.421       -0.409     
+MASKED (18)  0.654     0.670    0.673     0.655        -0.346       -0.330     
+
+Confusion matrix - FULL (reference):
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    213 |      0
+stress      |      0 |    218
+
+Confusion matrix - CLEAN:
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    160 |     53
+stress      |    124 |     94
+
+Confusion matrix - MASKED:
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |     95 |    118
+stress      |     23 |    195
+
+-- TASK: hierarchical --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.957     0.957    0.957     0.957        —            —          
+CLEAN (9)    0.697     0.706    0.706     0.697        -0.261       -0.251     
+MASKED (18)  0.752     0.760    0.763     0.753        -0.206       -0.197     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    210 |      1 |      7
+sleepy      |      5 |    208 |      0
+stress      |     15 |      0 |    203
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    207 |      4 |      7
+sleepy      |      5 |    157 |     51
+stress      |     13 |    111 |     94
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    205 |      0 |     13
+sleepy      |      1 |     95 |    117
+stress      |     11 |     12 |    195
+
+-- TASK: direct_3class --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.951     0.951    0.951     0.951        —            —          
+CLEAN (9)    0.699     0.707    0.707     0.700        -0.252       -0.244     
+MASKED (18)  0.656     0.660    0.661     0.657        -0.295       -0.291     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    209 |      1 |      8
+sleepy      |      6 |    207 |      0
+stress      |     15 |      2 |    201
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    211 |      4 |      3
+sleepy      |      4 |    147 |     62
+stress      |     16 |    101 |    101
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    211 |      3 |      4
+sleepy      |      2 |    108 |    103
+stress      |     16 |     92 |    110
+
+Interpretation:
+  - Removing Blink + Heart hurts macro F1 most on: subtype (delta -0.421), hierarchical (delta -0.261), direct_3class (delta -0.252).
+  - Clean wins on direct_3class; masked wins on binary, subtype, hierarchical.
+
+================================================================================
+CONFIGURATION: keep_blink
+Keep Blink  /  Exclude Posture + Heart
+Kept features (7): b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std
+Excluded features (11): p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct, HR, RMMSD
+================================================================================
+
+-- TASK: binary --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.952     0.958    0.957     0.957        —            —          
+CLEAN (7)    0.862     0.871    0.874     0.875        -0.091       -0.088     
+MASKED (18)  0.399     0.500    0.664     0.530        -0.553       -0.458     
+
+Confusion matrix - FULL (reference):
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      210 |        8
+abnormal    |       20 |      411
+
+Confusion matrix - CLEAN:
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      188 |       30
+abnormal    |       52 |      379
+
+Confusion matrix - MASKED:
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |        0 |      218
+abnormal    |        0 |      431
+
+-- TASK: subtype --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    1.000     1.000    1.000     1.000        —            —          
+CLEAN (7)    0.604     0.627    0.624     0.603        -0.396       -0.373     
+MASKED (18)  0.461     0.500    0.503     0.463        -0.539       -0.500     
+
+Confusion matrix - FULL (reference):
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    213 |      0
+stress      |      0 |    218
+
+Confusion matrix - CLEAN:
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    183 |     30
+stress      |    132 |     86
+
+Confusion matrix - MASKED:
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |     48 |    165
+stress      |     49 |    169
+
+-- TASK: hierarchical --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.957     0.957    0.957     0.957        —            —          
+CLEAN (7)    0.654     0.668    0.667     0.654        -0.303       -0.289     
+MASKED (18)  0.247     0.334    0.334     0.246        -0.711       -0.623     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    210 |      1 |      7
+sleepy      |      5 |    208 |      0
+stress      |     15 |      0 |    203
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    188 |     16 |     14
+sleepy      |     24 |    159 |     30
+stress      |     28 |    104 |     86
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |      0 |     27 |    191
+sleepy      |      0 |     48 |    165
+stress      |      0 |     49 |    169
+
+-- TASK: direct_3class --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.951     0.951    0.951     0.951        —            —          
+CLEAN (7)    0.661     0.678    0.678     0.661        -0.291       -0.273     
+MASKED (18)  0.256     0.323    0.322     0.256        -0.695       -0.628     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    209 |      1 |      8
+sleepy      |      6 |    207 |      0
+stress      |     15 |      2 |    201
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    202 |      5 |     11
+sleepy      |     28 |    153 |     32
+stress      |     31 |    102 |     85
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |      0 |     55 |    163
+sleepy      |      0 |     82 |    131
+stress      |      0 |     91 |    127
+
+Interpretation:
+  - Removing Posture + Heart hurts macro F1 most on: binary (delta -0.091), subtype (delta -0.396), hierarchical (delta -0.303), direct_3class (delta -0.291).
+  - Training only on the kept sensors (clean) beats train-with-all-then-mask on: binary, subtype, hierarchical, direct_3class.
+
+================================================================================
+CONFIGURATION: keep_heart
+Keep Heart  /  Exclude Posture + Blink
+Kept features (2): HR, RMMSD
+Excluded features (16): p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct, b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std
+================================================================================
+
+-- TASK: binary --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.952     0.958    0.957     0.957        —            —          
+CLEAN (2)    0.802     0.783    0.838     0.830        -0.150       -0.175     
+MASKED (18)  0.399     0.500    0.664     0.530        -0.553       -0.458     
+
+Confusion matrix - FULL (reference):
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      210 |        8
+abnormal    |       20 |      411
+
+Confusion matrix - CLEAN:
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |      134 |       84
+abnormal    |       21 |      410
+
+Confusion matrix - MASKED:
+true \ pred |   normal | abnormal
+---------------------------------
+normal      |        0 |      218
+abnormal    |        0 |      431
+
+-- TASK: subtype --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    1.000     1.000    1.000     1.000        —            —          
+CLEAN (2)    0.988     0.988    0.988     0.988        -0.012       -0.012     
+MASKED (18)  0.995     0.995    0.995     0.995        -0.005       -0.005     
+
+Confusion matrix - FULL (reference):
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    213 |      0
+stress      |      0 |    218
+
+Confusion matrix - CLEAN:
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    212 |      1
+stress      |      4 |    214
+
+Confusion matrix - MASKED:
+true \ pred | sleepy | stress
+-----------------------------
+sleepy      |    213 |      0
+stress      |      2 |    216
+
+-- TASK: hierarchical --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.957     0.957    0.957     0.957        —            —          
+CLEAN (2)    0.829     0.838    0.837     0.829        -0.128       -0.119     
+MASKED (18)  0.530     0.664    0.661     0.528        -0.427       -0.293     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    210 |      1 |      7
+sleepy      |      5 |    208 |      0
+stress      |     15 |      0 |    203
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    134 |     46 |     38
+sleepy      |      9 |    204 |      0
+stress      |     12 |      1 |    205
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |      0 |     93 |    125
+sleepy      |      0 |    213 |      0
+stress      |      0 |      2 |    216
+
+-- TASK: direct_3class --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.951     0.951    0.951     0.951        —            —          
+CLEAN (2)    0.836     0.844    0.843     0.836        -0.115       -0.107     
+MASKED (18)  0.531     0.662    0.659     0.529        -0.420       -0.289     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    209 |      1 |      8
+sleepy      |      6 |    207 |      0
+stress      |     15 |      2 |    201
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    139 |     39 |     40
+sleepy      |     10 |    203 |      0
+stress      |     13 |      0 |    205
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |      0 |     71 |    147
+sleepy      |      0 |    211 |      2
+stress      |      0 |      1 |    217
+
+Interpretation:
+  - Removing Posture + Blink hurts macro F1 most on: binary (delta -0.150), hierarchical (delta -0.128), direct_3class (delta -0.115).
+  - Smaller drops also on: subtype (delta -0.012).
+  - Clean wins on binary, hierarchical, direct_3class; masked wins on subtype.
+
+================================================================================
+OVERALL SUMMARY
+================================================================================
+
+configuration       task           scenario  n_feat  macro_f1  bal_acc  accuracy  dF1_vs_full
+------------------  -------------  --------  ------  --------  -------  --------  -----------
+full                binary         full      18      0.952     0.958    0.957     +0.000     
+full                subtype        full      18      1.000     1.000    1.000     +0.000     
+full                hierarchical   full      18      0.957     0.957    0.957     +0.000     
+full                direct_3class  full      18      0.951     0.951    0.951     +0.000     
+keep_posture_blink  binary         clean     16      0.954     0.961    0.958     +0.002     
+keep_posture_blink  binary         masked    18      0.952     0.958    0.957     +0.000     
+keep_posture_blink  subtype        clean     16      0.693     0.697    0.696     -0.307     
+keep_posture_blink  subtype        masked    18      0.662     0.677    0.680     -0.338     
+keep_posture_blink  hierarchical   clean     16      0.763     0.769    0.769     -0.195     
+keep_posture_blink  hierarchical   masked    18      0.749     0.760    0.763     -0.209     
+keep_posture_blink  direct_3class  clean     16      0.750     0.756    0.757     -0.201     
+keep_posture_blink  direct_3class  masked    18      0.654     0.663    0.664     -0.297     
+keep_posture_heart  binary         clean     11      0.957     0.961    0.961     +0.005     
+keep_posture_heart  binary         masked    18      0.957     0.956    0.961     +0.005     
+keep_posture_heart  subtype        clean     11      0.998     0.998    0.998     -0.002     
+keep_posture_heart  subtype        masked    18      0.998     0.998    0.998     -0.002     
+keep_posture_heart  hierarchical   clean     11      0.960     0.960    0.960     +0.003     
+keep_posture_heart  hierarchical   masked    18      0.960     0.960    0.960     +0.003     
+keep_posture_heart  direct_3class  clean     11      0.959     0.959    0.958     +0.008     
+keep_posture_heart  direct_3class  masked    18      0.965     0.965    0.965     +0.014     
+keep_blink_heart    binary         clean     9       0.859     0.862    0.874     -0.093     
+keep_blink_heart    binary         masked    18      0.399     0.500    0.664     -0.553     
+keep_blink_heart    subtype        clean     9       0.981     0.982    0.981     -0.019     
+keep_blink_heart    subtype        masked    18      0.995     0.995    0.995     -0.005     
+keep_blink_heart    hierarchical   clean     9       0.864     0.863    0.863     -0.094     
+keep_blink_heart    hierarchical   masked    18      0.530     0.664    0.661     -0.427     
+keep_blink_heart    direct_3class  clean     9       0.879     0.878    0.878     -0.072     
+keep_blink_heart    direct_3class  masked    18      0.535     0.662    0.659     -0.416     
+keep_posture        binary         clean     9       0.950     0.954    0.955     -0.002     
+keep_posture        binary         masked    18      0.957     0.956    0.961     +0.005     
+keep_posture        subtype        clean     9       0.579     0.591    0.589     -0.421     
+keep_posture        subtype        masked    18      0.654     0.670    0.673     -0.346     
+keep_posture        hierarchical   clean     9       0.697     0.706    0.706     -0.261     
+keep_posture        hierarchical   masked    18      0.752     0.760    0.763     -0.206     
+keep_posture        direct_3class  clean     9       0.699     0.707    0.707     -0.252     
+keep_posture        direct_3class  masked    18      0.656     0.660    0.661     -0.295     
+keep_blink          binary         clean     7       0.862     0.871    0.874     -0.091     
+keep_blink          binary         masked    18      0.399     0.500    0.664     -0.553     
+keep_blink          subtype        clean     7       0.604     0.627    0.624     -0.396     
+keep_blink          subtype        masked    18      0.461     0.500    0.503     -0.539     
+keep_blink          hierarchical   clean     7       0.654     0.668    0.667     -0.303     
+keep_blink          hierarchical   masked    18      0.247     0.334    0.334     -0.711     
+keep_blink          direct_3class  clean     7       0.661     0.678    0.678     -0.291     
+keep_blink          direct_3class  masked    18      0.256     0.323    0.322     -0.695     
+keep_heart          binary         clean     2       0.802     0.783    0.838     -0.150     
+keep_heart          binary         masked    18      0.399     0.500    0.664     -0.553     
+keep_heart          subtype        clean     2       0.988     0.988    0.988     -0.012     
+keep_heart          subtype        masked    18      0.995     0.995    0.995     -0.005     
+keep_heart          hierarchical   clean     2       0.829     0.838    0.837     -0.128     
+keep_heart          hierarchical   masked    18      0.530     0.664    0.661     -0.427     
+keep_heart          direct_3class  clean     2       0.836     0.844    0.843     -0.115     
+keep_heart          direct_3class  masked    18      0.531     0.662    0.659     -0.420     
+

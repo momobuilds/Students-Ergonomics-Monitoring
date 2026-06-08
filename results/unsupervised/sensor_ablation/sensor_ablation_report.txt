@@ -1,0 +1,447 @@
+UNSUPERVISED LOSO SENSOR ABLATION REPORT
+================================================================================
+
+Date: 2026-06-08 11:00:45
+Model: Gaussian Mixture (sklearn.mixture.GaussianMixture, covariance_type='full').
+Pipeline: SimpleImputer(median) + StandardScaler + Gaussian Mixture, fit ONLY on the training subjects of each LOSO fold.
+Cross-validation: Leave-One-Subject-Out on group column = video_source.
+Tasks: binary (normal vs anomalous, n_components=2) and direct_3class (normal/sleepy/stress, n_components=3).
+Method: per fold, cluster the training subjects with Gaussian Mixture; freeze a cluster -> label mapping by majority vote on the training assignments (a component with no training rows falls back to the most frequent training label); then apply that frozen mapping when predicting the held-out subject. This mirrors how the offline-trained GMM in the GUI labels real-time data from subjects it has never seen.
+Random state: 42.
+
+Sensor groups:
+  - Posture (camera body): 9 features -> p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct
+  - Blink   (camera face): 7 features -> b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std
+  - Heart   (wearable)   : 2 features -> HR, RMMSD
+
+Scenarios:
+  full   : fit and predict using all 18 features. Reference baseline per task.
+  clean  : fit and predict using only the features of the kept sensors. The realistic 'we just don't have this sensor' setup the GUI would face. This is the trustworthy scenario for the ablation.
+  masked : fit with all 18 features on the training subjects, then set the excluded-sensor columns to NaN on the held-out subject so the training-fold SimpleImputer fills them with the training median. Deployment-mismatch stress test, reported only for analysis/comparison.
+
+FULL reference (all 18 features) per task:
+task           macro_f1  bal_acc  accuracy  weighted_f1
+-------------  --------  -------  --------  -----------
+binary         0.877     0.857    0.897     0.893      
+direct_3class  0.700     0.718    0.718     0.700      
+
+================================================================================
+CONFIGURATION: keep_posture_blink
+Keep Posture + Blink  /  Exclude Heart
+Kept features (16): p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct, b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std
+Excluded features (2): HR, RMMSD
+================================================================================
+
+-- TASK: binary --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.877     0.857    0.897     0.893        -            -          
+CLEAN (16)   0.969     0.968    0.972     0.972        +0.092       +0.111     
+MASKED (18)  0.885     0.866    0.903     0.900        +0.008       +0.009     
+
+Confusion matrix - FULL (reference):
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       160 |        58
+anomalous   |         9 |       422
+
+Confusion matrix - CLEAN:
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       208 |        10
+anomalous   |         8 |       423
+
+Confusion matrix - MASKED:
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       164 |        54
+anomalous   |         9 |       422
+
+-- TASK: direct_3class --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.700     0.718    0.718     0.700        -            -          
+CLEAN (16)   0.671     0.702    0.701     0.671        -0.029       -0.016     
+MASKED (18)  0.663     0.689    0.689     0.664        -0.036       -0.029     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    217 |      1 |      0
+sleepy      |      4 |    160 |     49
+stress      |     35 |     94 |     89
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    218 |      0 |      0
+sleepy      |      9 |    173 |     31
+stress      |     18 |    136 |     64
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    218 |      0 |      0
+sleepy      |      4 |    159 |     50
+stress      |     31 |    117 |     70
+
+Interpretation:
+  - Removing Heart only slightly lowers macro F1 on: direct_3class (delta -0.029).
+  - Surprisingly improves on: binary (delta +0.092).
+  - Training only on the kept sensors (clean) beats train-with-all-then-mask on: binary, direct_3class.
+
+================================================================================
+CONFIGURATION: keep_posture_heart
+Keep Posture + Heart  /  Exclude Blink
+Kept features (11): p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct, HR, RMMSD
+Excluded features (7): b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std
+================================================================================
+
+-- TASK: binary --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.877     0.857    0.897     0.893        -            -          
+CLEAN (11)   0.947     0.938    0.954     0.953        +0.070       +0.081     
+MASKED (18)  0.798     0.784    0.831     0.825        -0.078       -0.073     
+
+Confusion matrix - FULL (reference):
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       160 |        58
+anomalous   |         9 |       422
+
+Confusion matrix - CLEAN:
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       194 |        24
+anomalous   |         6 |       425
+
+Confusion matrix - MASKED:
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       140 |        78
+anomalous   |        32 |       399
+
+-- TASK: direct_3class --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.700     0.718    0.718     0.700        -            -          
+CLEAN (11)   0.687     0.681    0.681     0.687        -0.013       -0.037     
+MASKED (18)  0.675     0.715    0.713     0.675        -0.025       -0.003     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    217 |      1 |      0
+sleepy      |      4 |    160 |     49
+stress      |     35 |     94 |     89
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    177 |      3 |     38
+sleepy      |      1 |    149 |     63
+stress      |      6 |     96 |    116
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    209 |      9 |      0
+sleepy      |      1 |    192 |     20
+stress      |     51 |    105 |     62
+
+Interpretation:
+  - Removing Blink only slightly lowers macro F1 on: direct_3class (delta -0.013).
+  - Surprisingly improves on: binary (delta +0.070).
+  - Training only on the kept sensors (clean) beats train-with-all-then-mask on: binary, direct_3class.
+
+================================================================================
+CONFIGURATION: keep_blink_heart
+Keep Blink + Heart  /  Exclude Posture
+Kept features (9): b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std, HR, RMMSD
+Excluded features (9): p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct
+================================================================================
+
+-- TASK: binary --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.877     0.857    0.897     0.893        -            -          
+CLEAN (9)    0.781     0.824    0.786     0.792        -0.096       -0.033     
+MASKED (18)  0.661     0.657    0.707     0.702        -0.215       -0.199     
+
+Confusion matrix - FULL (reference):
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       160 |        58
+anomalous   |         9 |       422
+
+Confusion matrix - CLEAN:
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       205 |        13
+anomalous   |       126 |       305
+
+Confusion matrix - MASKED:
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       110 |       108
+anomalous   |        82 |       349
+
+-- TASK: direct_3class --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.700     0.718    0.718     0.700        -            -          
+CLEAN (9)    0.647     0.651    0.652     0.648        -0.052       -0.067     
+MASKED (18)  0.439     0.449    0.448     0.439        -0.261       -0.269     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    217 |      1 |      0
+sleepy      |      4 |    160 |     49
+stress      |     35 |     94 |     89
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    185 |     33 |      0
+sleepy      |     71 |    124 |     18
+stress      |     44 |     60 |    114
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    112 |    106 |      0
+sleepy      |     30 |    126 |     57
+stress      |     57 |    108 |     53
+
+Interpretation:
+  - Removing Posture hurts macro F1 most on: binary (delta -0.096), direct_3class (delta -0.052).
+  - Training only on the kept sensors (clean) beats train-with-all-then-mask on: binary, direct_3class.
+
+================================================================================
+CONFIGURATION: keep_posture
+Keep Posture  /  Exclude Blink + Heart
+Kept features (9): p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct
+Excluded features (9): b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std, HR, RMMSD
+================================================================================
+
+-- TASK: binary --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.877     0.857    0.897     0.893        -            -          
+CLEAN (9)    0.953     0.948    0.958     0.958        +0.076       +0.092     
+MASKED (18)  0.836     0.825    0.858     0.856        -0.041       -0.031     
+
+Confusion matrix - FULL (reference):
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       160 |        58
+anomalous   |         9 |       422
+
+Confusion matrix - CLEAN:
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       200 |        18
+anomalous   |         9 |       422
+
+Confusion matrix - MASKED:
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       158 |        60
+anomalous   |        32 |       399
+
+-- TASK: direct_3class --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.700     0.718    0.718     0.700        -            -          
+CLEAN (9)    0.589     0.592    0.592     0.589        -0.111       -0.126     
+MASKED (18)  0.690     0.722    0.721     0.690        -0.010       +0.004     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    217 |      1 |      0
+sleepy      |      4 |    160 |     49
+stress      |     35 |     94 |     89
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    176 |     42 |      0
+sleepy      |      1 |    145 |     67
+stress      |      7 |    148 |     63
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    216 |      2 |      0
+sleepy      |      1 |    184 |     28
+stress      |     32 |    118 |     68
+
+Interpretation:
+  - Removing Blink + Heart hurts macro F1 most on: direct_3class (delta -0.111).
+  - Surprisingly improves on: binary (delta +0.076).
+  - Clean wins on binary; masked wins on direct_3class.
+
+================================================================================
+CONFIGURATION: keep_blink
+Keep Blink  /  Exclude Posture + Heart
+Kept features (7): b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std
+Excluded features (11): p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct, HR, RMMSD
+================================================================================
+
+-- TASK: binary --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.877     0.857    0.897     0.893        -            -          
+CLEAN (7)    0.804     0.835    0.812     0.817        -0.073       -0.022     
+MASKED (18)  0.694     0.685    0.744     0.735        -0.183       -0.172     
+
+Confusion matrix - FULL (reference):
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       160 |        58
+anomalous   |         9 |       422
+
+Confusion matrix - CLEAN:
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       197 |        21
+anomalous   |       101 |       330
+
+Confusion matrix - MASKED:
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       110 |       108
+anomalous   |        58 |       373
+
+-- TASK: direct_3class --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.700     0.718    0.718     0.700        -            -          
+CLEAN (7)    0.550     0.571    0.573     0.552        -0.150       -0.148     
+MASKED (18)  0.385     0.398    0.398     0.385        -0.315       -0.320     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    217 |      1 |      0
+sleepy      |      4 |    160 |     49
+stress      |     35 |     94 |     89
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    161 |     57 |      0
+sleepy      |     50 |     54 |    109
+stress      |     36 |     25 |    157
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    116 |    102 |      0
+sleepy      |     46 |    104 |     63
+stress      |     54 |    126 |     38
+
+Interpretation:
+  - Removing Posture + Heart hurts macro F1 most on: binary (delta -0.073), direct_3class (delta -0.150).
+  - Training only on the kept sensors (clean) beats train-with-all-then-mask on: binary, direct_3class.
+
+================================================================================
+CONFIGURATION: keep_heart
+Keep Heart  /  Exclude Posture + Blink
+Kept features (2): HR, RMMSD
+Excluded features (16): p_shoulder_mean, p_shoulder_std, p_shoulder_bad_pct, p_head_tilt_mean, p_head_tilt_std, p_head_tilt_bad_pct, p_fhp_mean, p_fhp_std, p_fhp_bad_pct, b_ear_mean, b_ear_std, b_perclos, b_blink_count, b_blink_freq, b_ibi_mean, b_ibi_std
+================================================================================
+
+-- TASK: binary --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.877     0.857    0.897     0.893        -            -          
+CLEAN (2)    0.378     0.452    0.599     0.500        -0.498       -0.404     
+MASKED (18)  0.544     0.552    0.569     0.579        -0.333       -0.305     
+
+Confusion matrix - FULL (reference):
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       160 |        58
+anomalous   |         9 |       422
+
+Confusion matrix - CLEAN:
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |         1 |       217
+anomalous   |        43 |       388
+
+Confusion matrix - MASKED:
+true \ pred |    normal | anomalous
+-----------------------------------
+normal      |       109 |       109
+anomalous   |       171 |       260
+
+-- TASK: direct_3class --
+scenario     macro_f1  bal_acc  accuracy  weighted_f1  dF1_vs_full  dBA_vs_full
+-----------  --------  -------  --------  -----------  -----------  -----------
+FULL (18)    0.700     0.718    0.718     0.700        -            -          
+CLEAN (2)    0.483     0.504    0.504     0.483        -0.216       -0.214     
+MASKED (18)  0.369     0.373    0.373     0.369        -0.331       -0.345     
+
+Confusion matrix - FULL (reference):
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    217 |      1 |      0
+sleepy      |      4 |    160 |     49
+stress      |     35 |     94 |     89
+
+Confusion matrix - CLEAN:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |     37 |    125 |     56
+sleepy      |     92 |    113 |      8
+stress      |     16 |     25 |    177
+
+Confusion matrix - MASKED:
+true \ pred | normal | sleepy | stress
+--------------------------------------
+normal      |    102 |     59 |     57
+sleepy      |     57 |     86 |     70
+stress      |    111 |     53 |     54
+
+Interpretation:
+  - Removing Posture + Blink hurts macro F1 most on: binary (delta -0.498), direct_3class (delta -0.216).
+  - Clean wins on direct_3class; masked wins on binary.
+
+================================================================================
+OVERALL SUMMARY
+================================================================================
+
+configuration       task           scenario  n_feat  macro_f1  bal_acc  accuracy  dF1_vs_full
+------------------  -------------  --------  ------  --------  -------  --------  -----------
+full                binary         full      18      0.877     0.857    0.897     +0.000     
+full                direct_3class  full      18      0.700     0.718    0.718     +0.000     
+keep_posture_blink  binary         clean     16      0.969     0.968    0.972     +0.092     
+keep_posture_blink  binary         masked    18      0.885     0.866    0.903     +0.008     
+keep_posture_blink  direct_3class  clean     16      0.671     0.702    0.701     -0.029     
+keep_posture_blink  direct_3class  masked    18      0.663     0.689    0.689     -0.036     
+keep_posture_heart  binary         clean     11      0.947     0.938    0.954     +0.070     
+keep_posture_heart  binary         masked    18      0.798     0.784    0.831     -0.078     
+keep_posture_heart  direct_3class  clean     11      0.687     0.681    0.681     -0.013     
+keep_posture_heart  direct_3class  masked    18      0.675     0.715    0.713     -0.025     
+keep_blink_heart    binary         clean     9       0.781     0.824    0.786     -0.096     
+keep_blink_heart    binary         masked    18      0.661     0.657    0.707     -0.215     
+keep_blink_heart    direct_3class  clean     9       0.647     0.651    0.652     -0.052     
+keep_blink_heart    direct_3class  masked    18      0.439     0.449    0.448     -0.261     
+keep_posture        binary         clean     9       0.953     0.948    0.958     +0.076     
+keep_posture        binary         masked    18      0.836     0.825    0.858     -0.041     
+keep_posture        direct_3class  clean     9       0.589     0.592    0.592     -0.111     
+keep_posture        direct_3class  masked    18      0.690     0.722    0.721     -0.010     
+keep_blink          binary         clean     7       0.804     0.835    0.812     -0.073     
+keep_blink          binary         masked    18      0.694     0.685    0.744     -0.183     
+keep_blink          direct_3class  clean     7       0.550     0.571    0.573     -0.150     
+keep_blink          direct_3class  masked    18      0.385     0.398    0.398     -0.315     
+keep_heart          binary         clean     2       0.378     0.452    0.599     -0.498     
+keep_heart          binary         masked    18      0.544     0.552    0.569     -0.333     
+keep_heart          direct_3class  clean     2       0.483     0.504    0.504     -0.216     
+keep_heart          direct_3class  masked    18      0.369     0.373    0.373     -0.331     
+

@@ -37,6 +37,7 @@ import pandas as pd
 import streamlit as st
 
 import pipeline
+from collections import deque
 
 
 WINDOW_SECONDS = 10
@@ -125,6 +126,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+_ecg_buffer: deque = deque(maxlen=250 * 6)
 
 
 # =============================================================================
@@ -683,28 +685,16 @@ def sidebar_controls() -> dict:
     # shown read-only and kept at their config defaults.
     dft = pipeline.default_thresholds()
     with st.sidebar.expander("Posture / blinking thresholds (fixed)", expanded=False):
-        rows = [
-            ("Shoulder asymmetry", f"{dft['shoulder_thr']:.0f}&deg;"),
-            ("Head lateral tilt", f"{dft['head_tilt_thr']:.0f}&deg;"),
-            ("Forward-head proxy", f"{dft['fhp_thr']:.2f}"),
-            ("Min landmark visibility", f"{dft['min_visibility']:.2f}"),
-            ("EAR closed-eye", f"{dft['ear_thr']:.2f}"),
-            ("PERCLOS problematic", f"{dft['perclos_thr']:.2f}"),
-        ]
-        items = "".join(
-            f'<li style="margin:0.55rem 0;display:flex;align-items:center;'
-            f'justify-content:space-between;gap:1.2rem;width:100%;">'
-            f'<span style="font-weight:600;flex:1;">{name}</span>'
-            f'<span style="background:#66bb6a;color:#fff;border-radius:6px;'
-            f'padding:0.05rem 0.5rem;font-weight:700;font-size:0.85rem;'
-            f'min-width:3.2rem;text-align:center;flex:none;">'
-            f'{value}</span></li>'
-            for name, value in rows
-        )
+        st.caption("Fixed to match the training data (data/supervised). "
+                   "Values from Scripts/Posture/config.py and "
+                   "Scripts/Blinking/blink_config.py (literature-based).")
         st.markdown(
-            f'<ul style="list-style:none;padding-left:0;margin:0;color:#000;">'
-            f'{items}</ul>',
-            unsafe_allow_html=True,
+            f"- Shoulder asymmetry: **{dft['shoulder_thr']:.1f}°**\n"
+            f"- Head lateral tilt: **{dft['head_tilt_thr']:.1f}°**\n"
+            f"- Forward-head proxy: **{dft['fhp_thr']:.2f}**\n"
+            f"- Minimum landmark visibility: **{dft['min_visibility']:.2f}**\n"
+            f"- EAR closed-eye: **{dft['ear_thr']:.2f}**\n"
+            f"- PERCLOS problematic: **{dft['perclos_thr']:.2f}**"
         )
 
     # ---- 5. DATA ----------------------------------------------------------
@@ -1098,15 +1088,16 @@ def make_chart_row(show_hr: bool, charts: "LiveCharts"):
     specs = [("Eyes - EAR", charts.eye_df()),
              ("Posture angles (deg)", charts.angles_df()),
              ("Forward-head proxy (ratio)", charts.fhp_df())]
-    if show_hr:
-        specs.append(("Heart rate (bpm)", charts.hr_df()))
-    cols = st.columns(len(specs))
+    cols = st.columns(4 if show_hr else 3)
     objs = []
-    for col, (caption, frame) in zip(cols, specs):
+    for col, (caption, frame) in zip(cols[:3], specs):
         col.caption(caption)
         objs.append(col.line_chart(_empty_like(frame), height=200))
-    if not show_hr:
-        objs.append(None)   # keep a 4-slot shape (ear, angles, fhp, hr)
+    if show_hr:
+        cols[3].caption("Heart rate (bpm)")
+        objs.append(cols[3].empty())   # <-- empty placeholder, not line_chart
+    else:
+        objs.append(None)
     return tuple(objs)
 
 
@@ -1118,7 +1109,11 @@ def push_charts(chart_objs, charts: "LiveCharts"):
     angles_c.add_rows(rows["angles"])
     fhp_c.add_rows(rows["fhp"])
     if hr_c is not None:
-        hr_c.add_rows(rows["hr"])
+        bpm = rows["hr"]["HR (bpm)"].iloc[-1]
+        if not np.isnan(bpm):
+            _ecg_buffer.extend(bpm_to_ecg_chunk(bpm))
+            ecg_df = pd.DataFrame({"HR (bpm)": list(_ecg_buffer)})
+            hr_c.line_chart(ecg_df, height=200)
 
 
 def show_persisted_charts():
@@ -1154,6 +1149,25 @@ def metrics_html(ear, posture_ok, face, hr_live, hr_on, p_count, b_count, remain
     </ul>
     """
 
+def ecg_beat(n_samples: int) -> np.ndarray:
+    t = np.linspace(0, 1, n_samples)
+    r  =  1.00 * np.exp(-((t - 0.45) ** 2) / (2 * 0.018 ** 2))
+    s  = -0.15 * np.exp(-((t - 0.52) ** 2) / (2 * 0.010 ** 2))
+    tw =  0.25 * np.exp(-((t - 0.72) ** 2) / (2 * 0.045 ** 2))
+    return r + s + tw
+
+def bpm_to_ecg_chunk(bpm: float, sample_rate: int = 250) -> np.ndarray:
+    rng = np.random.default_rng()
+    samples_per_beat = int(sample_rate * 60 / bpm)
+    chunk = np.zeros(sample_rate)
+    pos = 0
+    while pos < len(chunk):
+        rr = int(samples_per_beat * rng.uniform(0.97, 1.03))
+        if pos + rr > len(chunk):
+            break
+        chunk[pos:pos + rr] = ecg_beat(rr)
+        pos += rr
+    return chunk
 
 # =============================================================================
 # REAL-TIME ACQUISITION

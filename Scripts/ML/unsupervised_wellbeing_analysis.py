@@ -145,7 +145,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results_unsupervised"),
+        default=Path("results/unsupervised/baseline"),
         help="Output directory for unsupervised results.",
     )
     parser.add_argument(
@@ -362,6 +362,7 @@ def evaluate_clustering(
     y_true: Sequence[str],
     results_dir: Path,
     table_filename: str,
+    cm_filename: str,
 ) -> Tuple[Dict[str, object], pd.DataFrame, List[str]]:
     mapping = majority_vote_mapping(y_true, cluster_ids)
     y_pred = mapped_labels(cluster_ids, mapping)
@@ -371,6 +372,14 @@ def evaluate_clustering(
     )
     table["mapped_label"] = [mapping[int(idx)] for idx in table.index]
     table.to_csv(results_dir / table_filename)
+
+    save_confusion_matrix_png(
+        y_true,
+        y_pred,
+        LABELS,
+        f"{method_name} Confusion Matrix (majority-vote mapping)",
+        results_dir / cm_filename,
+    )
 
     row: Dict[str, object] = {
         "method": method_name,
@@ -742,6 +751,8 @@ def save_confusion_matrix_png(
     title: str,
     out_path: Path,
 ) -> None:
+    import textwrap
+
     import matplotlib
 
     matplotlib.use("Agg")
@@ -749,7 +760,7 @@ def save_confusion_matrix_png(
 
     cm = confusion_matrix(y_true, y_pred, labels=labels)
     fig, ax = plt.subplots(figsize=(6.5, 5.5))
-    image = ax.imshow(cm, interpolation="nearest", cmap="Blues")
+    image = ax.imshow(cm, interpolation="nearest", cmap="Greens")
     fig.colorbar(image, ax=ax)
     ax.set(
         xticks=np.arange(len(labels)),
@@ -758,8 +769,12 @@ def save_confusion_matrix_png(
         yticklabels=labels,
         xlabel="Predicted label",
         ylabel="True label",
-        title=title,
     )
+    # Drop any "(...)" detail and wrap long titles so they stay readable.
+    import re
+
+    clean_title = re.sub(r"\s*\([^)]*\)", "", title).strip()
+    ax.set_title("\n".join(textwrap.wrap(clean_title, width=34)), fontsize=11)
     threshold = cm.max() / 2.0 if cm.size and cm.max() else 0
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
@@ -848,6 +863,7 @@ def save_visualizations(
     gmm_clusters: Sequence[int],
     results_dir: Path,
     random_state: int,
+    agglomerative_clusters: Optional[Sequence[int]] = None,
 ) -> Dict[str, bool]:
     pca_coords, tsne_coords, umap_coords = compute_embeddings(X_scaled, random_state)
     save_scatter_plot(
@@ -874,6 +890,15 @@ def save_visualizations(
         "PC1",
         "PC2",
     )
+    if agglomerative_clusters is not None:
+        save_scatter_plot(
+            pca_coords,
+            agglomerative_clusters,
+            "PCA colored by Agglomerative clusters",
+            results_dir / "pca_agglomerative_clusters.png",
+            "PC1",
+            "PC2",
+        )
     if tsne_coords is not None:
         save_scatter_plot(
             tsne_coords,
@@ -1174,8 +1199,16 @@ def main() -> None:
     data_dir = args.data_dir.expanduser().resolve()
     results_dir = args.results_dir.expanduser().resolve()
     results_dir.mkdir(parents=True, exist_ok=True)
-    loso_results_dir = Path("results") / "unsupervised_binary"
-    loso_results_dir.mkdir(parents=True, exist_ok=True)
+    binary_dir = results_dir / "binary"
+    comparison_dir = results_dir / "comparison"
+    summary_dir = results_dir / "summary"
+    for path in (binary_dir, comparison_dir, summary_dir):
+        path.mkdir(parents=True, exist_ok=True)
+    loso_results_dir = results_dir.parent / "binary_loso"
+    loso_binary_dir = loso_results_dir / "binary"
+    loso_summary_dir = loso_results_dir / "summary"
+    for path in (loso_results_dir, loso_binary_dir, loso_summary_dir):
+        path.mkdir(parents=True, exist_ok=True)
 
     mpl_config = results_dir / ".matplotlib"
     mpl_config.mkdir(parents=True, exist_ok=True)
@@ -1201,39 +1234,46 @@ def main() -> None:
         "Gaussian Mixture": "gmm_cluster_label_table.csv",
         "Agglomerative": "agglomerative_cluster_label_table.csv",
     }
+    cm_filenames = {
+        "K-Means": "kmeans_confusion_matrix.png",
+        "Gaussian Mixture": "gmm_confusion_matrix.png",
+        "Agglomerative": "agglomerative_confusion_matrix.png",
+    }
     for method_name, cluster_ids in cluster_assignments.items():
         row, table, y_pred = evaluate_clustering(
             method_name,
             np.asarray(cluster_ids),
             X_scaled,
             y_true,
-            results_dir,
+            binary_dir,
             table_filenames[method_name],
+            cm_filenames[method_name],
         )
         clustering_rows.append(row)
         cluster_tables[method_name] = table
         cluster_predictions[method_name] = y_pred
 
     clustering_results = pd.DataFrame(clustering_rows)
-    clustering_results.to_csv(results_dir / "clustering_results.csv", index=False)
+    clustering_results.to_csv(binary_dir / "clustering_results.csv", index=False)
 
     visualization_status = save_visualizations(
         X_scaled,
         y_true,
         cluster_assignments["K-Means"],
         cluster_assignments["Gaussian Mixture"],
-        results_dir,
+        binary_dir,
         args.random_state,
+        agglomerative_clusters=cluster_assignments["Agglomerative"],
     )
 
     anomaly_results, anomaly_predictions = run_anomaly_detection(
         normal_df,
         full_df,
         features,
-        results_dir,
+        binary_dir,
         args.random_state,
     )
-    anomaly_results.to_csv(results_dir / "anomaly_detection_results.csv", index=False)
+    anomaly_results.to_csv(binary_dir / "anomaly_detection_results.csv", index=False)
 
     if group_col is None:
         raise ValueError(
@@ -1244,15 +1284,15 @@ def main() -> None:
         full_df,
         features,
         group_col,
-        loso_results_dir,
+        loso_binary_dir,
         args.random_state,
     )
     loso_results.to_csv(
-        loso_results_dir / "anomaly_detection_loso_results.csv",
+        loso_binary_dir / "anomaly_detection_loso_results.csv",
         index=False,
     )
     loso_predictions.to_csv(
-        loso_results_dir / "anomaly_detection_loso_predictions.csv",
+        loso_binary_dir / "anomaly_detection_loso_predictions.csv",
         index=False,
     )
     loso_summary = build_loso_anomaly_summary(
@@ -1260,14 +1300,14 @@ def main() -> None:
         loso_predictions,
         anomaly_results,
     )
-    (loso_results_dir / "anomaly_detection_loso_summary.txt").write_text(
+    (loso_summary_dir / "anomaly_detection_loso_summary.txt").write_text(
         loso_summary + "\n",
         encoding="utf-8",
     )
 
     ablation_results = run_feature_ablation(normal_df, full_df, args.random_state)
     ablation_results.to_csv(
-        results_dir / "unsupervised_feature_ablation.csv",
+        comparison_dir / "unsupervised_feature_ablation.csv",
         index=False,
     )
 
@@ -1282,7 +1322,7 @@ def main() -> None:
     predictions_df["isolation_forest_prediction"] = anomaly_predictions["IsolationForest"]
     predictions_df["oneclass_svm_prediction"] = anomaly_predictions["OneClassSVM"]
     predictions_df["lof_prediction"] = anomaly_predictions["LocalOutlierFactor"]
-    predictions_df.to_csv(results_dir / "unsupervised_predictions.csv", index=False)
+    predictions_df.to_csv(binary_dir / "unsupervised_predictions.csv", index=False)
 
     dataset_lines = summarize_dataset(
         datasets,
@@ -1301,7 +1341,7 @@ def main() -> None:
         full_df,
         visualization_status,
     )
-    (results_dir / "final_unsupervised_summary.txt").write_text(
+    (summary_dir / "final_unsupervised_summary.txt").write_text(
         summary_text + "\n",
         encoding="utf-8",
     )

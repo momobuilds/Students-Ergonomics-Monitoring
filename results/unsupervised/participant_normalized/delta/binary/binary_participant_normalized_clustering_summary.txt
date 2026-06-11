@@ -1,0 +1,49 @@
+BINARY CLUSTERING PARTICIPANT-DELTA SUMMARY
+================================================================================
+          method augmentation_name  augmentation_factor  noise_level  silhouette  davies_bouldin  calinski_harabasz  adjusted_rand_index  normalized_mutual_info  accuracy  balanced_accuracy  macro_f1  weighted_f1
+         K-Means          baseline                    0         0.00    0.332538        1.326799         311.815125             0.373086                0.436317  0.805855           0.853828  0.802303     0.811000
+Gaussian Mixture          baseline                    0         0.00    0.305193        1.343181         284.282967             0.534852                0.537480  0.865948           0.899072  0.860697     0.869573
+   Agglomerative          baseline                    0         0.00    0.323993        1.414059         282.331849             0.263530                0.372099  0.758089           0.817865  0.756275     0.763177
+         K-Means             aug_1                    1         0.01    0.329609        1.331610         307.322604             0.380724                0.440879  0.808937           0.856148  0.805275     0.814039
+Gaussian Mixture             aug_1                    1         0.01    0.303916        1.352888         281.419167             0.525887                0.531563  0.862866           0.896752  0.857670     0.866595
+   Agglomerative             aug_1                    1         0.01    0.301779        1.396356         276.012177             0.469402                0.495230  0.842835           0.881671  0.838099     0.847187
+         K-Means             aug_2                    1         0.02    0.329617        1.331568         307.336001             0.380724                0.440879  0.808937           0.856148  0.805275     0.814039
+Gaussian Mixture             aug_2                    1         0.02    0.299127        1.347140         277.779688             0.580784                0.568553  0.881356           0.910673  0.875907     0.884441
+   Agglomerative             aug_2                    1         0.02    0.301782        1.396336         276.014916             0.469402                0.495230  0.842835           0.881671  0.838099     0.847187
+         K-Means             aug_3                    1         0.05    0.329608        1.331788         307.246370             0.380724                0.440879  0.808937           0.856148  0.805275     0.814039
+Gaussian Mixture             aug_3                    1         0.05    0.305450        1.359886         284.012666             0.512579                0.522858  0.858243           0.893271  0.853139     0.862125
+   Agglomerative             aug_3                    1         0.05    0.301733        1.396702         275.872563             0.469402                0.495230  0.842835           0.881671  0.838099     0.847187
+         K-Means             aug_4                    2         0.02    0.328542        1.334499         305.415510             0.380724                0.440879  0.808937           0.856148  0.805275     0.814039
+Gaussian Mixture             aug_4                    2         0.02    0.298444        1.349871         276.480796             0.580784                0.568553  0.881356           0.910673  0.875907     0.884441
+   Agglomerative             aug_4                    2         0.02    0.300839        1.399806         274.261375             0.469402                0.495230  0.842835           0.881671  0.838099     0.847187
+
+Best augmented Agglomerative: aug_1 (factor=1, noise=0.01, macro F1=0.838, balanced accuracy=0.882).
+Cluster vs true-label table for that setting:
+true_label  anomalous  normal mapped_label
+cluster                                   
+0                 329       0    anomalous
+1                 102     218       normal
+Confusion matrix:
+[[218   0]
+ [102 329]]
+
+Best augmented Gaussian Mixture: aug_2 (factor=1, noise=0.02, macro F1=0.876, balanced accuracy=0.911).
+Cluster vs true-label table for that setting:
+true_label  anomalous  normal mapped_label
+cluster                                   
+0                 354       0    anomalous
+1                  77     218       normal
+Confusion matrix:
+[[218   0]
+ [ 77 354]]
+
+Best augmented K-Means: aug_1 (factor=1, noise=0.01, macro F1=0.805, balanced accuracy=0.856).
+Cluster vs true-label table for that setting:
+true_label  anomalous  normal mapped_label
+cluster                                   
+0                 307       0    anomalous
+1                 124     218       normal
+Confusion matrix:
+[[218   0]
+ [124 307]]
+

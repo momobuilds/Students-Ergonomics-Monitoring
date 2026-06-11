@@ -1,0 +1,19 @@
+feature,importance,stage_best_model,random_forest_is_stage_best
+HR,0.21131604995610304,Random Forest,True
+RMMSD,0.15595685680878058,Random Forest,True
+p_head_tilt_mean,0.14456025775825185,Random Forest,True
+p_head_tilt_std,0.12320961526677893,Random Forest,True
+p_fhp_std,0.06242083346777805,Random Forest,True
+b_ear_std,0.06013580813054297,Random Forest,True
+p_fhp_bad_pct,0.04874918130313828,Random Forest,True
+p_fhp_mean,0.04743187700283298,Random Forest,True
+p_head_tilt_bad_pct,0.04254284579474641,Random Forest,True
+p_shoulder_bad_pct,0.021066619693238774,Random Forest,True
+b_perclos,0.015094646674462274,Random Forest,True
+b_blink_freq,0.014685843051367433,Random Forest,True
+b_blink_count,0.013282267723713558,Random Forest,True
+b_ibi_mean,0.012173524850740344,Random Forest,True
+p_shoulder_std,0.010760560812086492,Random Forest,True
+b_ear_mean,0.007026342223393358,Random Forest,True
+p_shoulder_mean,0.006716644045667111,Random Forest,True
+b_ibi_std,0.0028702254363775275,Random Forest,True

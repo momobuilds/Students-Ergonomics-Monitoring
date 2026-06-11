@@ -150,7 +150,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--results-dir",
         type=Path,
-        default=Path("results/unsupervised_3class"),
+        default=Path("results/unsupervised/three_class"),
         help="Output directory for three-group unsupervised results.",
     )
     parser.add_argument(
@@ -362,6 +362,8 @@ def save_confusion_matrix_png(
     title: str,
     out_path: Path,
 ) -> None:
+    import textwrap
+
     import matplotlib
 
     matplotlib.use("Agg")
@@ -369,7 +371,7 @@ def save_confusion_matrix_png(
 
     cm = confusion_matrix(y_true, y_pred, labels=labels)
     fig, ax = plt.subplots(figsize=(6.5, 5.5))
-    image = ax.imshow(cm, interpolation="nearest", cmap="Blues")
+    image = ax.imshow(cm, interpolation="nearest", cmap="Greens")
     fig.colorbar(image, ax=ax)
     ax.set(
         xticks=np.arange(len(labels)),
@@ -378,9 +380,13 @@ def save_confusion_matrix_png(
         yticklabels=labels,
         xlabel="Predicted label",
         ylabel="True label",
-        title=title,
     )
     plt.setp(ax.get_xticklabels(), rotation=30, ha="right", rotation_mode="anchor")
+    # Drop any "(...)" detail and wrap long titles so they stay readable.
+    import re
+
+    clean_title = re.sub(r"\s*\([^)]*\)", "", title).strip()
+    ax.set_title("\n".join(textwrap.wrap(clean_title, width=34)), fontsize=11)
     threshold = cm.max() / 2.0 if cm.size and cm.max() else 0
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
@@ -893,6 +899,11 @@ def main() -> None:
     data_dir = args.data_dir.expanduser().resolve()
     results_dir = args.results_dir.expanduser().resolve()
     results_dir.mkdir(parents=True, exist_ok=True)
+    direct_dir = results_dir / "direct_3class"
+    comparison_dir = results_dir / "comparison"
+    summary_dir = results_dir / "summary"
+    for path in (direct_dir, comparison_dir, summary_dir):
+        path.mkdir(parents=True, exist_ok=True)
 
     mpl_config = results_dir / ".matplotlib"
     mpl_config.mkdir(parents=True, exist_ok=True)
@@ -929,7 +940,7 @@ def main() -> None:
             np.asarray(cluster_ids),
             X_scaled,
             y_true,
-            results_dir,
+            direct_dir,
             table_filenames[method_name],
             cm_filenames[method_name],
         )
@@ -938,18 +949,18 @@ def main() -> None:
         cluster_predictions[method_name] = y_pred
 
     clustering_results = pd.DataFrame(clustering_rows)
-    clustering_results.to_csv(results_dir / "clustering_3group_results.csv", index=False)
+    clustering_results.to_csv(direct_dir / "clustering_3group_results.csv", index=False)
 
     visualization_status = save_visualizations(
         X_scaled,
         y_true,
         cluster_assignments,
-        results_dir,
+        direct_dir,
         args.random_state,
     )
 
     ablation_results = run_feature_ablation(full_df, args.random_state)
-    ablation_results.to_csv(results_dir / "feature_ablation_3group.csv", index=False)
+    ablation_results.to_csv(comparison_dir / "feature_ablation_3group.csv", index=False)
 
     predictions_df = full_df.loc[:, metadata_columns(full_df, features)].copy()
     predictions_df["true_label"] = full_df["true_label"]
@@ -960,7 +971,7 @@ def main() -> None:
     predictions_df["agglomerative_cluster"] = cluster_assignments["Agglomerative"]
     predictions_df["agglomerative_mapped_label"] = cluster_predictions["Agglomerative"]
     predictions_df.to_csv(
-        results_dir / "unsupervised_3group_predictions.csv", index=False
+        direct_dir / "unsupervised_3group_predictions.csv", index=False
     )
 
     summary_lines = dataset_summary_lines(
@@ -979,7 +990,7 @@ def main() -> None:
         full_df,
         visualization_status,
     )
-    (results_dir / "final_unsupervised_3class_summary.txt").write_text(
+    (summary_dir / "final_unsupervised_3class_summary.txt").write_text(
         summary_text + "\n",
         encoding="utf-8",
     )

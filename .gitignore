@@ -41,3 +41,7 @@ coverage/
 # Generated reports
 *.tmp
 ~$*
+
+# Track everything inside results/ (override the global ignores above)
+!results/
+!results/**

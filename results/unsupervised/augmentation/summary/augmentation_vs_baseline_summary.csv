@@ -1,0 +1,4 @@
+task,method,baseline_method,baseline_macro_f1,best_augmented_macro_f1,change_macro_f1,baseline_balanced_accuracy,best_augmented_balanced_accuracy,change_balanced_accuracy,best_augmentation_factor,best_noise_level,best_augmentation_name
+binary_clustering,Gaussian Mixture,Gaussian Mixture,0.81,0.8713297250143738,0.061329725014373726,0.86,0.9071925754060325,0.0471925754060325,2,0.02,aug_4
+threeclass_clustering,Gaussian Mixture,Gaussian Mixture,0.815,0.850016030124653,0.03501603012465304,0.822,0.8506769464903591,0.028676946490359123,1,0.05,aug_3
+anomaly_detection_loso,IsolationForest,LocalOutlierFactor,0.806,0.764579727115365,-0.04142027288463501,0.778,0.7385321100917431,-0.03946788990825689,2,0.02,aug_4

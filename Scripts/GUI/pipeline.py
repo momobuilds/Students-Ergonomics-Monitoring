@@ -56,6 +56,7 @@ SUPERVISED_DIR = PROJECT_ROOT / "data" / "supervised"
 TEST_VIDEO_DIR = PROJECT_ROOT / "Test Video"
 VIDEO_DIR = PROJECT_ROOT / "Video"
 RESULTS_DIR = PROJECT_ROOT / "results"
+GUI_UPLOAD_DIR = Path("/private/tmp/swem_gui_uploads")
 
 METRIC_PRIORITY = ["macro_f1", "balanced_accuracy", "weighted_f1", "accuracy"]
 
@@ -122,6 +123,25 @@ def open_camera(preferred_index: int = 0, max_index: int = 4):
             return cap, index
         cap.release()
     return None, None
+
+
+def validate_video(path: str | Path) -> tuple[bool, str]:
+    """Check that an uploaded video exists and OpenCV can decode its first frame."""
+    import cv2
+
+    video_path = Path(path)
+    if not video_path.exists() or video_path.stat().st_size == 0:
+        return False, "The uploaded video file is empty or no longer exists."
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        cap.release()
+        return False, "OpenCV cannot open this video format or codec."
+    ok, _ = cap.read()
+    cap.release()
+    if not ok:
+        return False, "The video opens, but its first frame cannot be decoded."
+    return True, ""
 
 
 def model_menu_options(task: str, learning: str) -> list[str]:

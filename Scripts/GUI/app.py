@@ -163,10 +163,20 @@ def _remove_uploaded_video():
 def _persist_video_upload(video_file, heart_file):
     """Keep uploaded inputs available after uploader widgets leave the page."""
     _remove_uploaded_video()
+    pipeline.GUI_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     suffix = Path(video_file.name).suffix or ".mp4"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+    with tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=suffix,
+        prefix="swem_",
+        dir=pipeline.GUI_UPLOAD_DIR,
+    ) as tmp:
         tmp.write(video_file.getvalue())
         st.session_state.uploaded_video_path = tmp.name
+    valid, error = pipeline.validate_video(st.session_state.uploaded_video_path)
+    if not valid:
+        _remove_uploaded_video()
+        raise ValueError(error)
     st.session_state.uploaded_video_name = video_file.name
     st.session_state.uploaded_heart_data = load_heart_csv(heart_file)
 
@@ -1165,6 +1175,7 @@ def run_video(model, settings, video_path, heart):
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         st.error(f"Could not open the video: {video_path}")
+        st.session_state.rt_running = False
         return
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -1368,12 +1379,15 @@ def _page_source():
             st.caption("All three sensors remain part of model training. Missing HR data is imputed.")
             if st.button("Continue", type="primary", use_container_width=True,
                          disabled=video_file is None and not has_persisted_video):
-                if video_file is not None:
-                    _persist_video_upload(video_file, heart_file)
-                st.session_state.source = "video"
-                st.session_state.use_wearable = False
-                _set_page(3)
-                st.rerun()
+                try:
+                    if video_file is not None:
+                        _persist_video_upload(video_file, heart_file)
+                    st.session_state.source = "video"
+                    st.session_state.use_wearable = False
+                    _set_page(3)
+                    st.rerun()
+                except ValueError as exc:
+                    st.error(f"Video upload error: {exc}")
         else:
             port = st.text_input(
                 "PPG serial port (optional)",
@@ -1443,8 +1457,12 @@ def _page_acquisition():
         else:
             video_path = st.session_state.get("uploaded_video_path")
             video_name = st.session_state.get("uploaded_video_name")
-            if not video_path or not Path(video_path).exists():
-                st.error("The uploaded video is no longer available. Return to the source page.")
+            valid_video, video_error = pipeline.validate_video(video_path) if video_path else (
+                False,
+                "The uploaded video is no longer available.",
+            )
+            if not valid_video:
+                st.error(f"{video_error} Return to the source page and upload it again.")
                 st.session_state.rt_running = False
                 _bottom_navigation(4)
                 return

@@ -1,15 +1,9 @@
 """
 app.py - Streamlit GUI for the Students Ergonomics & Wellbeing Monitor.
 
-A single dashboard that drives the project's existing analysis code (under
-``Scripts/``) through the bridge in ``pipeline.py``:
-
-  * LEFT SIDEBAR  -> all the parameters: which model to use (number of classes,
-    supervised/unsupervised, exact estimator), the camera / wearable settings,
-    the analysis window length and the posture / blink thresholds.
-  * CENTRAL AREA  -> the live (or video) feed with the body skeleton and eye
-    overlays, the current predicted state, the live metrics, live charts of the
-    raw features and a per-window log of predictions.
+A five-page wizard that drives the project's existing analysis code through
+``pipeline.py``. It guides the user from source selection and model training to
+acquisition review and the final save decision.
 
 Two sources are supported and share the same pipeline (Posture + Blinking +
 optional Heart -> 18 features -> the chosen model):
@@ -20,9 +14,9 @@ optional Heart -> 18 features -> the chosen model):
 
 Run it from the project root with:
 
-    streamlit run GUI/app.py
+    streamlit run Scripts/GUI/app.py
 
-(or use the helper script  ./GUI/run.sh).
+(or use the helper script ./Scripts/GUI/run.sh).
 """
 
 from __future__ import annotations
@@ -49,64 +43,43 @@ PROCESSED_OUTPUT_DIR = pipeline.PROJECT_ROOT / "data" / "processed"
 # =============================================================================
 
 st.set_page_config(
-    page_title="Wellbeing Monitor",
+    page_title="SWEM",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# A little extra green styling on top of .streamlit/config.toml.
 st.markdown(
     """
     <style>
-      /* green sidebar */
-      section[data-testid="stSidebar"] {
-          background: linear-gradient(180deg, #1b5e20 0%, #2e7d32 100%);
+      [data-testid="stSidebar"], [data-testid="collapsedControl"] { display: none; }
+      .stApp, [data-testid="stAppViewContainer"] { background: #ffffff; }
+      .block-container { max-width: 1280px; padding-top: 4rem; padding-bottom: 3rem; }
+      h1, h2, h3 { color: #1b5e20; }
+      div[data-testid="stVerticalBlockBorderWrapper"] {
+          border-color: #a5d6a7 !important;
+          border-radius: 18px;
+          background: #ffffff;
+          box-shadow: 0 6px 24px rgba(27, 94, 32, 0.08);
       }
-      /* labels / headings / captions sit on the green bg -> light text */
-      section[data-testid="stSidebar"] label,
-      section[data-testid="stSidebar"] h1,
-      section[data-testid="stSidebar"] h2,
-      section[data-testid="stSidebar"] h3,
-      section[data-testid="stSidebar"] p,
-      section[data-testid="stSidebar"] .stMarkdown,
-      section[data-testid="stSidebar"] [data-testid="stWidgetLabel"],
-      section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
-          color: #f1f8e9 !important;
-      }
-      /* widgets with a white/light background -> dark text so they stay readable */
-      section[data-testid="stSidebar"] input,
-      section[data-testid="stSidebar"] textarea,
-      section[data-testid="stSidebar"] [data-baseweb="select"] *,
-      section[data-testid="stSidebar"] [data-baseweb="input"] *,
-      section[data-testid="stSidebar"] [data-testid="stExpander"] summary,
-      section[data-testid="stSidebar"] [data-testid="stExpander"] label,
-      section[data-testid="stSidebar"] [data-testid="stExpander"] p,
-      section[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stWidgetLabel"],
-      section[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stCaptionContainer"] {
-          color: #13311f !important;
-      }
-      /* keep the expander body on a light panel so dark text reads well */
-      section[data-testid="stSidebar"] [data-testid="stExpander"] {
-          background-color: #f1f8e9 !important;
+      div.stButton > button {
           border-radius: 10px;
-      }
-      /* the train button is always solid green with white text, so it is
-         readable in both its idle and trained states */
-      section[data-testid="stSidebar"] div.stButton > button {
-          background-color: #114d18 !important;
-          color: #ffffff !important;
-          border: 1px solid #a5d6a7 !important;
+          border: 1px solid #2e7d32;
           font-weight: 700;
       }
-      section[data-testid="stSidebar"] div.stButton > button:hover {
-          background-color: #2e7d32 !important;
-          color: #ffffff !important;
+      div.stButton > button[kind="primary"] {
+          background: #2e7d32;
+          color: #ffffff;
+      }
+      div[data-baseweb="select"] { font-weight: 700; }
+      .swem-step {
+          color: #2e7d32; font-size: .78rem; font-weight: 800;
+          letter-spacing: .12em; text-transform: uppercase;
+      }
+      .swem-subtitle {
+          color: #1b5e20; font-size: 1.35rem; font-weight: 650;
+          text-align: center; margin-top: .5rem;
       }
 
-      /* main title accent */
-      h1, h2, h3 { color: #1b5e20; }
-
-      /* prediction banner */
       .state-banner {
           padding: 1.0rem 1.4rem; border-radius: 14px; font-weight: 700;
           font-size: 1.6rem; text-align: center; color: white;
@@ -121,7 +94,6 @@ st.markdown(
       .metric-good { color: #2e7d32; font-weight: 600; }
       .metric-dim  { color: #95a5a6; font-weight: 600; }
 
-      div.stButton > button { border-radius: 10px; font-weight: 600; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -149,6 +121,12 @@ def _init_state():
         "last_saved_path": None,
         "save_processed_data": True,
         "processed_window_seconds": 60,
+        "page": 1,
+        "source": None,
+        "wearable_port": "",
+        "use_wearable": False,
+        "app_settings": None,
+        "acquisition_complete": False,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -364,12 +342,13 @@ def _save_processed_records(final=False):
 
 def _start_realtime():
     _begin_analysis_session("realtime", video_source="webcam")
+    st.session_state.acquisition_complete = False
     st.session_state.rt_running = True
 
 
 def _stop_realtime():
     st.session_state.rt_running = False
-    _save_processed_records(final=True)
+    st.session_state.acquisition_complete = True
 
 
 def _clear_data():
@@ -383,355 +362,154 @@ def _clear_data():
     st.session_state.processed_output_path = None
     st.session_state.session_id = None
     st.session_state.session_video_source = None
+    st.session_state.acquisition_complete = False
 
 
 # =============================================================================
-# SIDEBAR -- ALL THE PARAMETERS
+# MODEL CONFIGURATION
 # =============================================================================
 
-def sidebar_controls() -> dict:
-    st.sidebar.title("Parameters")
-
-    # ---- 1. MODEL OPTIONS -------------------------------------------------
-    st.sidebar.header("Model")
-    task = st.sidebar.radio(
-        "Number of classes",
-        options=["binary", "3class"],
-        format_func=lambda k: {"binary": "Binary (normal / anomalous)",
-                               "3class": "3 classes (normal / sleepy / stress)"}[k],
+def model_configuration_controls() -> dict:
+    """Render the progressive model choices and return the resolved settings."""
+    task = st.radio(
+        "Model output",
+        ["binary", "3class"],
+        format_func=lambda value: {
+            "binary": "Binary: normal / anomalous",
+            "3class": "3 classes: normal / sleepy / stress",
+        }[value],
+        horizontal=True,
+        key="model_task",
     )
-    learning = st.sidebar.radio(
-        "Learning type",
-        options=["supervised", "unsupervised"],
-        format_func=lambda k: {"supervised": "Supervised",
-                               "unsupervised": "Unsupervised"}[k],
-    )
-
-    # Hierarchical refinement is only defined for binary + supervised:
-    # after the normal/abnormal decision, a second model says sleepy vs stress.
     hierarchical = False
-    if task == "binary" and learning == "supervised":
-        hierarchical = st.sidebar.checkbox(
-            "If anomalous, predict the subtype (sleepy / stress)",
-            value=False,
-            help="Hierarchical classification: a binary stage (normal/anomalous) "
-                 "and, only for anomalous windows, a second sleepy-vs-stress model.",
+    if task == "binary":
+        hierarchical = st.toggle(
+            "Show the anomalous subtype (sleepy / stress)",
+            key="model_hierarchical",
         )
+    else:
+        st.caption("Subtype prediction is available only with the binary supervised model.")
 
-    use_best_model = st.sidebar.checkbox(
-        "Use best model automatically",
-        value=True,
-        help=(
-            "Selects from saved evaluation results using macro F1 first, then "
-            "balanced accuracy, weighted F1 and accuracy."
-        ),
+    learning = st.radio(
+        "Learning approach",
+        ["supervised", "unsupervised"],
+        format_func=str.title,
+        horizontal=True,
+        key="model_learning",
     )
+    if learning == "unsupervised":
+        hierarchical = False
 
-    st.sidebar.header("Training options")
-    use_augmentation = st.sidebar.checkbox(
-        "Use data augmentation during training",
-        value=False,
-        help=(
-            "Supervised augmentation is participant-wise and class-wise. "
-            "Unsupervised clustering augmentation is label-free and participant-wise."
-        ),
+    use_augmentation = st.toggle(
+        "Perform data augmentation",
+        key="model_augmentation",
     )
-    try:
-        model_names = pipeline.available_models(task, learning)
-    except Exception as exc:  # noqa: BLE001
-        st.sidebar.error(f"Could not read the models: {exc}")
-        model_names = []
-
-    best_selection = {}
-    if model_names:
-        try:
-            best_selection = pipeline.select_best_model(
-                task,
-                learning,
-                hierarchical=hierarchical,
-                use_augmentation=use_augmentation,
-            )
-        except Exception as exc:  # noqa: BLE001
-            st.sidebar.warning(f"Could not read saved model results: {exc}")
-            best_selection = {}
-
-    auto_model_name = best_selection.get("model_name")
-    auto_dropdown_name = (
-        best_selection.get("binary_model")
-        if hierarchical
-        else best_selection.get("model_name")
+    options = pipeline.model_menu_options(task, learning)
+    model_choice = st.selectbox(
+        "Select model",
+        options,
+        format_func=lambda value: "BEST MODEL - recommended" if value == "Best Model" else value,
+        help="Best Model selects the strongest saved confusion-matrix result.",
+        key="model_menu_choice",
     )
-    default_index = 0
-    if auto_dropdown_name in model_names:
-        default_index = model_names.index(auto_dropdown_name)
-
-    manual_model_name = st.sidebar.selectbox(
-        "Model",
-        options=model_names,
-        index=default_index,
-        disabled=use_best_model,
-        help="Disabled when automatic best-model selection is enabled.",
-    ) if model_names else None
-
-    if use_best_model and best_selection:
-        st.sidebar.success(
-            "Best model selected automatically based on macro F1 and balanced accuracy."
-        )
-        if auto_model_name:
-            st.sidebar.caption(f"Automatic choice: **{auto_model_name}**")
-
-    selected_display_name = auto_model_name if use_best_model else manual_model_name
-    binary_model_name = (
-        best_selection.get("binary_model") if use_best_model else manual_model_name
-    )
-    subtype_model_name = (
-        best_selection.get("subtype_model") if use_best_model else manual_model_name
-    )
-
-    if not selected_display_name:
-        selected_display_name = manual_model_name
-    if not binary_model_name:
-        binary_model_name = manual_model_name
-    if not subtype_model_name:
-        subtype_model_name = manual_model_name
-
-    # Augmentation is not tuned from the GUI: when it is enabled we use the
-    # best saved augmentation setting for the selected model, so the trained
-    # model matches the metrics and confusion matrix shown (both come from that
-    # same best saved run). The exact factor/noise are read from the results.
-    effective_augmentation_factor = 0
-    effective_noise_level = 0.0
-    if use_augmentation:
-        if use_best_model:
-            aug_source = best_selection
-        elif manual_model_name:
-            aug_source = pipeline.lookup_model_metrics(
-                task,
-                learning,
-                manual_model_name,
-                hierarchical=hierarchical,
-                use_augmentation=True,
-            )
-        else:
-            aug_source = {}
-        try:
-            best_factor = int(aug_source.get("augmentation_factor"))
-            best_noise = float(aug_source.get("noise_level"))
-        except (TypeError, ValueError):
-            best_factor, best_noise = 0, 0.0
-        if best_factor > 0 and best_noise > 0:
-            effective_augmentation_factor = best_factor
-            effective_noise_level = best_noise
-            st.sidebar.caption(
-                f"Augmentation for **{selected_display_name}**: "
-                f"factor={best_factor}, noise={best_noise:.3f} "
-                "(best saved setting)."
-            )
-        else:
-            st.sidebar.caption(
-                "No saved augmented result for this model; "
-                "it will be trained without augmentation."
-            )
-
-    signature = (
+    selection = pipeline.resolve_model_selection(
         task,
         learning,
-        selected_display_name,
-        binary_model_name,
-        subtype_model_name,
-        hierarchical,
-        use_best_model,
-        use_augmentation,
-        effective_augmentation_factor,
-        effective_noise_level,
+        model_choice,
+        hierarchical=hierarchical,
+        use_augmentation=use_augmentation,
     )
-    def _current_model_metrics():
-        """Saved metrics + confusion matrix for the current selection."""
-        if use_best_model:
-            return best_selection
-        return pipeline.lookup_model_metrics(
-            task,
-            learning,
-            manual_model_name,
-            hierarchical=hierarchical,
-            use_augmentation=use_augmentation,
-        )
+    selected_name = selection.get("model_name") or model_choice
+    binary_name = selection.get("binary_model") or selected_name
+    subtype_name = selection.get("subtype_model") or selected_name
 
-    def _build_model_info(model_metrics, model=None):
-        """Assemble the model_info panel data (works with or without training)."""
-        return {
-            "task": "hierarchical" if hierarchical else task,
-            "learning": learning,
-            "model_name": selected_display_name,
-            "binary_model": binary_model_name,
-            "subtype_model": subtype_model_name if hierarchical else None,
-            "hierarchical": hierarchical,
-            "use_best_model": use_best_model,
-            "use_augmentation": use_augmentation,
-            "augmentation_factor": effective_augmentation_factor,
-            "noise_level": effective_noise_level,
-            "metrics": model_metrics.get("metrics", {}),
-            "results_source": model_metrics.get("results_source", ""),
-            "augmentation_name": model_metrics.get("augmentation_name", ""),
-            "confusion_matrix_path": model_metrics.get("confusion_matrix_path"),
-            "training_metadata": getattr(model, "training_metadata", {}) if model else {},
-        }
-
-    is_trained = (st.session_state.trained_model is not None
-                  and st.session_state.model_signature == signature)
-
-    # Two-step flow: "Load" selects the model and shows its saved metrics /
-    # confusion matrix; "Train" then fits it on data/supervised so it can run.
-    col_load, col_train = st.sidebar.columns(2)
-    if col_load.button(
-        "Select the model",
-        use_container_width=True,
-        disabled=selected_display_name is None,
-    ):
+    factor = 0
+    noise = 0.0
+    if use_augmentation:
         try:
-            st.session_state.model_info = _build_model_info(_current_model_metrics())
-            st.session_state.loaded_signature = signature
-            # A freshly loaded selection is not trained yet.
-            st.session_state.trained_model = None
-            st.session_state.model_signature = None
-            st.rerun()
-        except Exception as exc:  # noqa: BLE001
-            st.session_state.model_info = None
-            st.session_state.loaded_signature = None
-            st.sidebar.error(f"Load error: {exc}")
+            factor = int(selection.get("augmentation_factor") or 0)
+            noise = float(selection.get("noise_level") or 0.0)
+        except (TypeError, ValueError):
+            factor, noise = 0, 0.0
+        if factor <= 0 or noise <= 0:
+            st.caption("No saved augmentation setting was found; training will use original data.")
 
-    is_loaded = (st.session_state.model_info is not None
-                 and st.session_state.loaded_signature == signature)
+    signature = (
+        task, learning, selected_name, binary_name, subtype_name, hierarchical,
+        model_choice == "Best Model", use_augmentation, factor, noise,
+    )
+    is_trained = (
+        st.session_state.trained_model is not None
+        and st.session_state.model_signature == signature
+    )
+    settings = {
+        "task": task,
+        "learning": learning,
+        "model_name": selected_name,
+        "manual_model_name": None if model_choice == "Best Model" else model_choice,
+        "use_best_model": model_choice == "Best Model",
+        "use_augmentation": use_augmentation,
+        "augmentation_factor": factor,
+        "noise_level": noise,
+        "save_processed_data": False,
+        "hierarchical": hierarchical,
+        "is_trained": is_trained,
+        "is_loaded": True,
+        "source": st.session_state.source,
+        "camera_index": 0,
+        "use_wearable": st.session_state.use_wearable,
+        "wearable_port": st.session_state.wearable_port,
+    }
 
-    if col_train.button(
-        "Train the model",
-        use_container_width=True,
-        disabled=not is_loaded or is_trained,
-    ):
-        with st.spinner(f"Training '{selected_display_name}' on data/supervised..."):
+    if st.button("Train the model", type="primary", use_container_width=True, disabled=is_trained):
+        with st.spinner(f"Training '{selected_name}'..."):
             try:
                 if hierarchical:
                     model = pipeline.build_hierarchical_model(
-                        binary_model_name,
-                        subtype_model_name,
+                        binary_name,
+                        subtype_name,
                         use_augmentation=use_augmentation,
-                        augmentation_factor=effective_augmentation_factor,
-                        noise_level=effective_noise_level,
+                        augmentation_factor=factor,
+                        noise_level=noise,
                     )
                 else:
                     model = pipeline.build_and_train_model(
                         task,
                         learning,
-                        selected_display_name,
+                        selected_name,
                         use_augmentation=use_augmentation,
-                        augmentation_factor=effective_augmentation_factor,
-                        noise_level=effective_noise_level,
+                        augmentation_factor=factor,
+                        noise_level=noise,
                     )
                 st.session_state.trained_model = model
                 st.session_state.model_signature = signature
-                st.session_state.model_info = _build_model_info(
-                    _current_model_metrics(), model=model
-                )
-                is_trained = True
-                st.sidebar.success(f"'{selected_display_name}' trained.")
+                st.session_state.model_info = {
+                    "task": "hierarchical" if hierarchical else task,
+                    "learning": learning,
+                    "model_name": selected_name,
+                    "binary_model": binary_name,
+                    "subtype_model": subtype_name if hierarchical else None,
+                    "hierarchical": hierarchical,
+                    "use_best_model": model_choice == "Best Model",
+                    "use_augmentation": use_augmentation,
+                    "augmentation_factor": factor,
+                    "noise_level": noise,
+                    "metrics": selection.get("metrics", {}),
+                    "results_source": selection.get("results_source", ""),
+                    "augmentation_name": selection.get("augmentation_name", ""),
+                    "confusion_matrix_path": selection.get("confusion_matrix_path"),
+                    "training_metadata": getattr(model, "training_metadata", {}),
+                }
+                settings["is_trained"] = True
+                st.session_state.app_settings = settings
             except Exception as exc:  # noqa: BLE001
                 st.session_state.trained_model = None
                 st.session_state.model_signature = None
-                st.sidebar.error(f"Training error: {exc}")
+                st.error(f"Training error: {exc}")
 
-    mode_txt = ("hierarchical (binary -> sleepy/stress)"
-                if hierarchical else f"{task} - {learning}")
     if is_trained:
-        st.sidebar.caption(f"Active: **{selected_display_name}** - {mode_txt} (trained)")
-    elif is_loaded:
-        st.sidebar.caption(
-            f"Loaded: **{selected_display_name}** - {mode_txt}. Press **Train** to run it."
-        )
-    elif st.session_state.trained_model is not None:
-        st.sidebar.warning("The selection changed: load and train again.")
-
-    # ---- 2. SOURCE --------------------------------------------------------
-    st.sidebar.header("Source")
-    source = st.sidebar.radio(
-        "What do you want to analyse?",
-        options=["realtime", "video"],
-        format_func=lambda k: {"realtime": "Real-time acquisition (webcam)",
-                               "video": "Video upload"}[k],
-    )
-
-    camera_index = 0   # default webcam, not exposed in the UI
-    use_wearable = False
-    wearable_port = "COM3"
-    if source == "realtime":
-        use_wearable = st.sidebar.checkbox("Use CMS50D wearable (HR/HRV)", value=False)
-        if use_wearable:
-            wearable_port = st.sidebar.text_input("Wearable serial port", value="COM3")
-
-    # ---- 3. ANALYSIS WINDOW (fixed) --------------------------------------
-    # The window length is fixed at 60s to match the training data: every
-    # feature in data/supervised is computed over 60s windows, so a prediction
-    # is produced once per minute. Not editable from the GUI.
-    st.sidebar.header("Analysis window")
-    st.sidebar.caption(
-        "Each window is **60 seconds** (one prediction per minute), fixed to "
-        "match the training data (data/supervised)."
-    )
-
-    # ---- 4. THRESHOLDS (fixed) -------------------------------------------
-    # The posture/blink thresholds are intentionally NOT editable. The model is
-    # trained on data/supervised, whose features (bad_pct, PERCLOS, blink
-    # detection) were computed with these exact literature values. Changing them
-    # at inference time would no longer match the training data, so they are
-    # shown read-only and kept at their config defaults.
-    dft = pipeline.default_thresholds()
-    with st.sidebar.expander("Posture / blinking thresholds (fixed)", expanded=False):
-        st.caption("Fixed to match the training data (data/supervised). "
-                   "Values from Scripts/Posture/config.py and "
-                   "Scripts/Blinking/blink_config.py (literature-based).")
-        st.markdown(
-            f"- Shoulder asymmetry: **{dft['shoulder_thr']:.1f}°**\n"
-            f"- Head lateral tilt: **{dft['head_tilt_thr']:.1f}°**\n"
-            f"- Forward-head proxy: **{dft['fhp_thr']:.2f}**\n"
-            f"- Minimum landmark visibility: **{dft['min_visibility']:.2f}**\n"
-            f"- EAR closed-eye: **{dft['ear_thr']:.2f}**\n"
-            f"- PERCLOS problematic: **{dft['perclos_thr']:.2f}**"
-        )
-
-    # ---- 5. DATA ----------------------------------------------------------
-    st.sidebar.header("Data")
-    save_processed_data = st.sidebar.checkbox(
-        "Save processed analysis data",
-        value=True,
-        help="Save each analyzed one-minute window to data/processed/ as a CSV.",
-    )
-    st.session_state.save_processed_data = save_processed_data
-
-    has_data = bool(st.session_state.history or st.session_state.window_metrics)
-    st.sidebar.button(
-        "Clear results", on_click=_clear_data, use_container_width=True,
-        disabled=st.session_state.rt_running or not has_data,
-        help="Discard the current predictions, per-window metrics and live "
-             "charts so they are not kept for the next acquisition.",
-    )
-
-    return {
-        "task": task,
-        "learning": learning,
-        "model_name": selected_display_name,
-        "manual_model_name": manual_model_name,
-        "use_best_model": use_best_model,
-        "use_augmentation": use_augmentation,
-        "augmentation_factor": effective_augmentation_factor,
-        "noise_level": effective_noise_level,
-        "save_processed_data": save_processed_data,
-        "hierarchical": hierarchical,
-        "is_trained": is_trained,
-        "is_loaded": is_loaded,
-        "source": source,
-        "camera_index": int(camera_index),
-        "use_wearable": use_wearable,
-        "wearable_port": wearable_port,
-    }
+        st.session_state.app_settings = settings
+    return settings
 
 
 # =============================================================================
@@ -1208,12 +986,18 @@ def run_realtime(model, settings):
     )
     hr_monitor.start()
 
-    cap = cv2.VideoCapture(settings["camera_index"])
-    if not cap.isOpened():
-        st.error(f"Could not open the webcam (index {settings['camera_index']}).")
+    cap, camera_index = pipeline.open_camera(settings["camera_index"])
+    if cap is None:
+        st.error(
+            "Camera access is unavailable. On macOS, open **System Settings → "
+            "Privacy & Security → Camera** and enable access for the terminal or "
+            "application used to start Streamlit. Then close other apps using the "
+            "camera, restart SWEM, and press Start again."
+        )
         hr_monitor.stop()
         st.session_state.rt_running = False
         return
+    settings["camera_index"] = camera_index
 
     # central layout: video on the left, metrics on the right
     col_video, col_side = st.columns([3, 2])
@@ -1388,7 +1172,7 @@ def run_video(model, settings, video_path, heart):
     prediction = None
 
     try:
-        while True:
+        while st.session_state.get("rt_running", False):
             ret, frame = cap.read()
             if not ret:
                 break
@@ -1473,74 +1257,218 @@ def run_video(model, settings, video_path, heart):
         pose.close()
         blink_analyzer.close()
     progress.progress(1.0, text="Analysis complete")
+    st.session_state.rt_running = False
+    st.session_state.acquisition_complete = True
 
 
 # =============================================================================
-# MAIN LAYOUT
+# FIVE-PAGE WIZARD
 # =============================================================================
 
-def main():
-    settings = sidebar_controls()
+def _set_page(page):
+    st.session_state.page = page
 
-    st.title("Wellbeing Monitor")
-    st.caption("Posture - Blinking - Heart rate -> state classification "
-               "(normal / sleepy / stress) with the project models.")
 
-    model = st.session_state.trained_model
-    if settings["is_loaded"] or settings["is_trained"]:
+def _go_home():
+    st.session_state.rt_running = False
+    _clear_data()
+    st.session_state.page = 1
+    st.session_state.source = None
+    st.session_state.app_settings = None
+    st.session_state.trained_model = None
+    st.session_state.model_signature = None
+    st.session_state.model_info = None
+    st.session_state.save_processed_data = False
+
+
+def _page_header(title, step):
+    st.markdown(f'<div class="swem-step">Step {step} of 5</div>', unsafe_allow_html=True)
+    st.title(title)
+
+
+def _bottom_navigation(step):
+    st.write("")
+    st.divider()
+    left, spacer, right = st.columns([1, 4, 1])
+    left.button("Back", on_click=_set_page, args=(max(1, step - 1),),
+                use_container_width=True, key=f"bottom_back_{step}")
+    right.button("Home", on_click=_go_home, use_container_width=True,
+                 key=f"bottom_home_{step}")
+
+
+def _page_home():
+    logo = pipeline.PROJECT_ROOT / "docs" / "SWEM.png"
+    _, center, _ = st.columns([1, 4, 1])
+    with center:
+        st.image(str(logo), use_container_width=True)
+        st.markdown(
+            '<div class="swem-subtitle">Student Wellbeing Evaluation &amp; Monitoring</div>',
+            unsafe_allow_html=True,
+        )
+        st.write("")
+        st.button("Start", type="primary", use_container_width=True,
+                  on_click=_set_page, args=(2,))
+
+
+def _page_source():
+    _page_header("Choose the acquisition source", 2)
+    with st.container(border=True):
+        choice = st.radio(
+            "How would you like to provide the data?",
+            ["video", "realtime"],
+            format_func=lambda value: {
+                "video": "Upload a video and an optional heart-rate CSV",
+                "realtime": "Start a real-time acquisition",
+            }[value],
+            horizontal=True,
+            key="source_choice",
+        )
+        if choice == "video":
+            col_video, col_hr = st.columns(2)
+            video_file = col_video.file_uploader(
+                "Video file", type=["mp4", "mov", "avi", "mkv"], key="video_upload"
+            )
+            col_hr.file_uploader(
+                "Heart-rate CSV (optional)", type=["csv"], key="heart_upload",
+                help="The file may contain HR and RMMSD columns, one row per minute.",
+            )
+            st.caption("All three sensors remain part of model training. Missing HR data is imputed.")
+            if st.button("Continue", type="primary", use_container_width=True,
+                         disabled=video_file is None):
+                st.session_state.source = "video"
+                st.session_state.use_wearable = False
+                _set_page(3)
+                st.rerun()
+        else:
+            port = st.text_input(
+                "PPG serial port (optional)",
+                value=st.session_state.wearable_port,
+                placeholder="Example: COM3 or /dev/ttyUSB0",
+            )
+            st.caption("Leave the port empty or skip PPG to continue with camera-based sensors only.")
+            use_col, skip_col = st.columns(2)
+            if use_col.button("Continue with PPG", type="primary", use_container_width=True,
+                              disabled=not port.strip()):
+                st.session_state.source = "realtime"
+                st.session_state.wearable_port = port.strip()
+                st.session_state.use_wearable = True
+                _set_page(3)
+                st.rerun()
+            if skip_col.button("Skip PPG", use_container_width=True):
+                st.session_state.source = "realtime"
+                st.session_state.wearable_port = ""
+                st.session_state.use_wearable = False
+                _set_page(3)
+                st.rerun()
+    _bottom_navigation(2)
+
+
+def _page_model():
+    _page_header("Configure and train the model", 3)
+    with st.container(border=True):
+        settings = model_configuration_controls()
+    if settings["is_trained"]:
+        st.success(f"'{settings['model_name']}' is trained and ready.")
         render_model_status(settings)
-        if not settings["is_trained"]:
-            st.info("Model loaded. Press **Train the model** in the sidebar "
-                    "to make it ready for acquisition.")
-    else:
-        st.info("Choose the model options in the sidebar, press **Select the model** "
-                "to preview it, then **Train the model** to begin.")
-    render_save_status()
+        st.button("Continue to acquisition", type="primary", use_container_width=True,
+                  on_click=_set_page, args=(4,))
+    _bottom_navigation(3)
 
-    # --- REAL-TIME ---------------------------------------------------------
+
+def _start_video_analysis():
+    st.session_state.rt_running = True
+    st.session_state.acquisition_complete = False
+
+
+def _page_acquisition():
+    _page_header("Data acquisition", 4)
+    settings = st.session_state.get("app_settings")
+    model = st.session_state.get("trained_model")
+    if settings is None or model is None:
+        st.warning("Train a model before starting the acquisition.")
+        st.button("Return to model configuration", on_click=_set_page, args=(3,))
+        _bottom_navigation(4)
+        return
+
+    start_col, stop_col = st.columns(2)
     if settings["source"] == "realtime":
-        st.subheader("Real-time acquisition")
-        c1, c2, _ = st.columns([1, 1, 4])
-        c1.button("Start", on_click=_start_realtime, use_container_width=True,
-                  disabled=not settings["is_trained"] or st.session_state.rt_running)
-        c2.button("Stop", on_click=_stop_realtime, use_container_width=True,
-                  disabled=not st.session_state.rt_running)
+        start_col.button("Start", type="primary", on_click=_start_realtime,
+                         use_container_width=True, disabled=st.session_state.rt_running)
+    else:
+        start_col.button("Start", type="primary", on_click=_start_video_analysis,
+                         use_container_width=True, disabled=st.session_state.rt_running)
+    stop_col.button("Stop", on_click=_stop_realtime, use_container_width=True,
+                    disabled=not st.session_state.rt_running)
 
-        if st.session_state.rt_running and model is not None:
+    if st.session_state.rt_running:
+        if settings["source"] == "realtime":
             run_realtime(model, settings)
         else:
-            show_persisted_charts()
-
-    # --- VIDEO UPLOAD ------------------------------------------------------
-    else:
-        st.subheader("Video analysis")
-        up_col, csv_col = st.columns(2)
-        video_file = up_col.file_uploader(
-            "Upload a video", type=["mp4", "mov", "avi", "mkv"],
-        )
-        heart_file = csv_col.file_uploader(
-            "Heart CSV (optional, 1 row/minute)", type=["csv"],
-            help="HR and RMMSD columns, aligned by position to the video minutes.",
-        )
-
-        if st.button("Analyse video", use_container_width=True,
-                     disabled=not settings["is_trained"] or video_file is None):
+            video_file = st.session_state.get("video_upload")
+            heart_file = st.session_state.get("heart_upload")
+            if video_file is None:
+                st.error("The uploaded video is no longer available. Return to the source page.")
+                st.session_state.rt_running = False
+                _bottom_navigation(4)
+                return
             _begin_analysis_session("video", video_source=video_file.name)
             heart = load_heart_csv(heart_file)
-            with tempfile.NamedTemporaryFile(delete=False,
-                                             suffix=Path(video_file.name).suffix) as tmp:
-                tmp.write(video_file.read())
+            with tempfile.NamedTemporaryFile(
+                delete=False, suffix=Path(video_file.name).suffix
+            ) as tmp:
+                tmp.write(video_file.getvalue())
                 tmp_path = tmp.name
             run_video(model, settings, tmp_path, heart)
-            _save_processed_records(final=True)
-            render_save_status()
-        else:
-            show_persisted_charts()
+    else:
+        show_persisted_charts()
 
-    # --- HISTORY (always shown below) -------------------------------------
-    st.divider()
-    render_history(st.container())
-    render_window_metrics(st.container())
+    if st.session_state.acquisition_complete:
+        st.divider()
+        st.subheader("Acquisition review")
+        render_history(st.container())
+        render_window_metrics(st.container())
+        redo_col, next_col = st.columns(2)
+        if redo_col.button("Redo acquisition", use_container_width=True):
+            _clear_data()
+            st.rerun()
+        next_col.button("Continue", type="primary", use_container_width=True,
+                        on_click=_set_page, args=(5,))
+    _bottom_navigation(4)
+
+
+def _finish_without_saving():
+    st.session_state.save_processed_data = False
+    _go_home()
+
+
+def _save_and_finish():
+    st.session_state.save_processed_data = True
+    _save_processed_records(final=True)
+    _go_home()
+
+
+def _page_save():
+    _page_header("Save acquisition data?", 5)
+    with st.container(border=True):
+        st.write("Would you like to save the reviewed acquisition as a processed CSV file?")
+        save_col, discard_col = st.columns(2)
+        save_col.button("Save and return home", type="primary", use_container_width=True,
+                        on_click=_save_and_finish)
+        discard_col.button("Do not save", use_container_width=True,
+                           on_click=_finish_without_saving)
+    _bottom_navigation(5)
+
+
+def main():
+    st.session_state.save_processed_data = False
+    pages = {
+        1: _page_home,
+        2: _page_source,
+        3: _page_model,
+        4: _page_acquisition,
+        5: _page_save,
+    }
+    pages.get(st.session_state.page, _page_home)()
 
 
 if __name__ == "__main__":

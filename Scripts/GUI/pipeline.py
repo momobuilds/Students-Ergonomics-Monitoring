@@ -30,6 +30,7 @@ Folder map (everything is resolved relative to this file):
 from __future__ import annotations
 
 import importlib.util
+import platform
 import sys
 from pathlib import Path
 
@@ -107,6 +108,73 @@ BLINK_FEATURES = engine.BLINK_FEATURES
 def available_models(task: str, learning: str):
     """Return the list of model names available for a task/learning combo."""
     return list(model_catalog(task, learning).keys())
+
+
+def open_camera(preferred_index: int = 0, max_index: int = 4):
+    """Open the preferred webcam, then fall back to other local camera indices."""
+    import cv2
+
+    indices = [preferred_index, *[i for i in range(max_index + 1) if i != preferred_index]]
+    backend = cv2.CAP_AVFOUNDATION if platform.system() == "Darwin" else cv2.CAP_ANY
+    for index in indices:
+        cap = cv2.VideoCapture(index, backend)
+        if cap.isOpened():
+            return cap, index
+        cap.release()
+    return None, None
+
+
+def model_menu_options(task: str, learning: str) -> list[str]:
+    """Return GUI model choices with the automatic best-model option first."""
+    return ["Best Model", *available_models(task, learning)]
+
+
+def resolve_model_selection(
+    task: str,
+    learning: str,
+    menu_choice: str,
+    hierarchical: bool = False,
+    use_augmentation: bool = False,
+) -> dict:
+    """Resolve a GUI menu choice to model names, metrics and confusion matrix."""
+    if menu_choice == "Best Model":
+        selection = select_best_model(
+            task,
+            learning,
+            hierarchical=hierarchical,
+            use_augmentation=use_augmentation,
+        )
+        selection["use_best_model"] = True
+        return selection
+
+    selection = lookup_model_metrics(
+        task,
+        learning,
+        menu_choice,
+        hierarchical=hierarchical,
+        use_augmentation=use_augmentation,
+    )
+    selection = dict(selection)
+    selection.setdefault("model_name", menu_choice)
+    selection.setdefault("binary_model", menu_choice)
+    selection.setdefault("subtype_model", menu_choice)
+    selection.setdefault("metrics", {})
+    selection.setdefault("results_source", "")
+    selection.setdefault("augmentation_name", "")
+    selection.setdefault("augmentation_factor", None)
+    selection.setdefault("noise_level", None)
+    selection.setdefault(
+        "confusion_matrix_path",
+        _confusion_matrix_path(
+            task,
+            learning,
+            menu_choice,
+            hierarchical,
+            use_augmentation,
+        ),
+    )
+    selection["use_best_model"] = False
+    return selection
 
 
 def _bool_values(series: pd.Series) -> pd.Series:
@@ -781,7 +849,7 @@ class HierarchicalModel:
         self.classes = ["normal", "sleepy", "stress"]
 
     def describe(self):
-        return f"{self.name} (gerarchico: binario -> sottotipo sleepy/stress)"
+        return f"{self.name} (hierarchical: binary -> sleepy/stress subtype)"
 
     def predict_row(self, feature_row):
         binary_result = self.binary.predict_row(feature_row)
@@ -876,7 +944,7 @@ def default_thresholds() -> dict:
     """Read the default thresholds straight from the project's config files.
 
     Posture defaults come from Scripts/Posture/config.py and the blink defaults
-    from Scripts/Blinking/blink_config.py, so the sidebar shows the exact
+    from Scripts/Blinking/blink_config.py, so the GUI uses the exact
     literature-based values used by the offline pipeline (not hard-coded copies).
     """
     import config as posture_config
@@ -903,7 +971,7 @@ def apply_settings(settings: dict):
     single tumbling window per minute instead of the offline 10s sliding step.
 
     Changing thresholds or window length at inference time would create a
-    train/inference mismatch, so they are shown read-only in the sidebar.
+    train/inference mismatch, so they remain fixed in the GUI.
     """
     import config as posture_config
     import blink_config

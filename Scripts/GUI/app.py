@@ -127,6 +127,9 @@ def _init_state():
         "use_wearable": False,
         "app_settings": None,
         "acquisition_complete": False,
+        "uploaded_video_path": None,
+        "uploaded_video_name": None,
+        "uploaded_heart_data": [],
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -143,6 +146,29 @@ def _safe_filename_part(value):
     text = str(value or "").strip()
     safe = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in text)
     return safe.strip("_") or "session"
+
+
+def _remove_uploaded_video():
+    path = st.session_state.get("uploaded_video_path")
+    if path:
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError:
+            pass
+    st.session_state.uploaded_video_path = None
+    st.session_state.uploaded_video_name = None
+    st.session_state.uploaded_heart_data = []
+
+
+def _persist_video_upload(video_file, heart_file):
+    """Keep uploaded inputs available after uploader widgets leave the page."""
+    _remove_uploaded_video()
+    suffix = Path(video_file.name).suffix or ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(video_file.getvalue())
+        st.session_state.uploaded_video_path = tmp.name
+    st.session_state.uploaded_video_name = video_file.name
+    st.session_state.uploaded_heart_data = load_heart_csv(heart_file)
 
 
 def _resolve_output_dir(output_dir):
@@ -1272,6 +1298,7 @@ def _set_page(page):
 def _go_home():
     st.session_state.rt_running = False
     _clear_data()
+    _remove_uploaded_video()
     st.session_state.page = 1
     st.session_state.source = None
     st.session_state.app_settings = None
@@ -1328,13 +1355,21 @@ def _page_source():
             video_file = col_video.file_uploader(
                 "Video file", type=["mp4", "mov", "avi", "mkv"], key="video_upload"
             )
-            col_hr.file_uploader(
+            heart_file = col_hr.file_uploader(
                 "Heart-rate CSV (optional)", type=["csv"], key="heart_upload",
                 help="The file may contain HR and RMMSD columns, one row per minute.",
             )
+            persisted_video = st.session_state.get("uploaded_video_path")
+            has_persisted_video = bool(persisted_video and Path(persisted_video).exists())
+            if video_file is None and has_persisted_video:
+                st.success(
+                    f"Video ready: {st.session_state.get('uploaded_video_name', 'uploaded video')}"
+                )
             st.caption("All three sensors remain part of model training. Missing HR data is imputed.")
             if st.button("Continue", type="primary", use_container_width=True,
-                         disabled=video_file is None):
+                         disabled=video_file is None and not has_persisted_video):
+                if video_file is not None:
+                    _persist_video_upload(video_file, heart_file)
                 st.session_state.source = "video"
                 st.session_state.use_wearable = False
                 _set_page(3)
@@ -1349,12 +1384,14 @@ def _page_source():
             use_col, skip_col = st.columns(2)
             if use_col.button("Continue with PPG", type="primary", use_container_width=True,
                               disabled=not port.strip()):
+                _remove_uploaded_video()
                 st.session_state.source = "realtime"
                 st.session_state.wearable_port = port.strip()
                 st.session_state.use_wearable = True
                 _set_page(3)
                 st.rerun()
             if skip_col.button("Skip PPG", use_container_width=True):
+                _remove_uploaded_video()
                 st.session_state.source = "realtime"
                 st.session_state.wearable_port = ""
                 st.session_state.use_wearable = False
@@ -1404,21 +1441,20 @@ def _page_acquisition():
         if settings["source"] == "realtime":
             run_realtime(model, settings)
         else:
-            video_file = st.session_state.get("video_upload")
-            heart_file = st.session_state.get("heart_upload")
-            if video_file is None:
+            video_path = st.session_state.get("uploaded_video_path")
+            video_name = st.session_state.get("uploaded_video_name")
+            if not video_path or not Path(video_path).exists():
                 st.error("The uploaded video is no longer available. Return to the source page.")
                 st.session_state.rt_running = False
                 _bottom_navigation(4)
                 return
-            _begin_analysis_session("video", video_source=video_file.name)
-            heart = load_heart_csv(heart_file)
-            with tempfile.NamedTemporaryFile(
-                delete=False, suffix=Path(video_file.name).suffix
-            ) as tmp:
-                tmp.write(video_file.getvalue())
-                tmp_path = tmp.name
-            run_video(model, settings, tmp_path, heart)
+            _begin_analysis_session("video", video_source=video_name)
+            run_video(
+                model,
+                settings,
+                video_path,
+                st.session_state.get("uploaded_heart_data", []),
+            )
     else:
         show_persisted_charts()
 

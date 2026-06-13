@@ -810,7 +810,7 @@ def render_history(placeholder):
     if not history:
         placeholder.info("No predictions yet. Start an acquisition or upload a video.")
         return
-    df = pd.DataFrame(history).drop(columns=["_pred"], errors="ignore")
+    df = pd.DataFrame(history).drop(columns=["_pred", "HR", "RMMSD"], errors="ignore")
     with placeholder.container():
         st.subheader("Per-window predictions")
         st.dataframe(df, use_container_width=True, hide_index=True)

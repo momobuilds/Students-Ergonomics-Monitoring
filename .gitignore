@@ -45,3 +45,6 @@ coverage/
 # Track everything inside results/ (override the global ignores above)
 !results/
 !results/**
+
+# Ignore GUI results
+results/gui/

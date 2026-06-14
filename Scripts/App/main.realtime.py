@@ -248,7 +248,7 @@ class RealtimeModel:
                       training labels, then new samples are assigned a cluster.
     """
 
-    def __init__(self, task, learning, name, kind, estimator):
+    def __init__(self, task, learning, name, kind, estimator, feature_columns=None):
         self.task = task
         self.learning = learning
         self.name = name
@@ -257,6 +257,15 @@ class RealtimeModel:
         self.preprocessor = None     # imputer + scaler for unsupervised models
         self.cluster_map = None      # cluster id -> label, for clustering
         self.classes = []
+        # Sensor subset this model is trained on (canonical order). When None the
+        # model uses every sensor (all FEATURE_COLUMNS). The live feature row may
+        # still carry every column; only these are passed to the estimator, so a
+        # 2-sensor model never sees the dropped sensor's (possibly imputed) values.
+        self.feature_columns = (
+            [c for c in FEATURE_COLUMNS if c in set(feature_columns)]
+            if feature_columns
+            else list(FEATURE_COLUMNS)
+        )
 
     def describe(self):
         return f"{self.name} [{self.task} / {self.learning}]"
@@ -264,6 +273,7 @@ class RealtimeModel:
     def fit(self):
         import pandas as pd
         X, y = load_dataset(self.task)
+        X = X.loc[:, self.feature_columns]
 
         if self.kind == "classifier":
             self.estimator.fit(X, y)
@@ -295,7 +305,7 @@ class RealtimeModel:
     def predict_row(self, feature_row):
         """Predict for one assembled feature row -> {'label', 'proba'}."""
         import pandas as pd
-        frame = pd.DataFrame([feature_row], columns=FEATURE_COLUMNS)
+        frame = pd.DataFrame([feature_row], columns=self.feature_columns)
 
         if self.kind == "classifier":
             label = str(self.estimator.predict(frame)[0])
@@ -460,20 +470,30 @@ def landmarks_from_results(results):
     ]
 
 
-def assemble_feature_row(posture_rows, blink_rows, hr_mean, rmssd):
+def assemble_feature_row(posture_rows, blink_rows, hr_mean, rmssd,
+                         require_posture=True, require_blink=True):
     """Combine the per-module window outputs into one 18-feature row.
 
-    Returns None when posture or blinking produced no usable window
-    (e.g. the user was not in frame for most of the minute).
+    Returns None (so the window is skipped) when a camera sensor that is in use
+    produced no usable window -- e.g. the camera went dark or the user was out
+    of frame for most of the minute. A camera-derived feature is too large a
+    chunk of the vector to fill with a constant median, so we drop the window
+    instead of emitting a confident-but-empty prediction.
+
+    A sensor that is not in use (``require_* = False``) never voids the window,
+    and its columns are filled with NaN (the model ignores them anyway). The
+    heart sensor is always imputed by the model's median rather than skipped.
     """
-    if not posture_rows or not blink_rows:
+    if require_posture and not posture_rows:
+        return None
+    if require_blink and not blink_rows:
         return None
 
-    posture = posture_rows[0]
-    blink = blink_rows[0]
+    posture = posture_rows[0] if posture_rows else {}
+    blink = blink_rows[0] if blink_rows else {}
 
-    row = {name: posture[name] for name in POSTURE_FEATURES}
-    row.update({name: blink[name] for name in BLINK_FEATURES})
+    row = {name: posture.get(name, np.nan) for name in POSTURE_FEATURES}
+    row.update({name: blink.get(name, np.nan) for name in BLINK_FEATURES})
     row["HR"] = hr_mean
     row["RMMSD"] = rmssd
     return row

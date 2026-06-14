@@ -125,6 +125,7 @@ def _init_state():
         "source": None,
         "wearable_port": "",
         "use_wearable": False,
+        "selected_sensors": list(pipeline.ALL_SENSORS),  # sensors used for training
         "app_settings": None,
         "acquisition_complete": False,
         "uploaded_video_path": None,
@@ -449,6 +450,24 @@ def model_configuration_controls() -> dict:
     binary_name = selection.get("binary_model") or selected_name
     subtype_name = selection.get("subtype_model") or selected_name
 
+    selected_sensors = [
+        sensor
+        for sensor in pipeline.ALL_SENSORS
+        if sensor in (st.session_state.get("selected_sensors") or pipeline.ALL_SENSORS)
+    ] or list(pipeline.ALL_SENSORS)
+    feature_columns = pipeline.resolve_feature_columns(selected_sensors)
+    st.caption(
+        "Sensors used for training: "
+        + ", ".join(pipeline.SENSOR_LABELS[s] for s in selected_sensors)
+        + f" ({len(feature_columns)} features)."
+    )
+    if len(selected_sensors) < len(pipeline.ALL_SENSORS):
+        st.caption(
+            "Note: the model is trained only on the selected sensors. Before "
+            "training, the figures below are the full three-sensor reference; "
+            "after training they are recomputed (LOSO) on this exact subset."
+        )
+
     factor = 0
     noise = 0.0
     if use_augmentation:
@@ -463,6 +482,7 @@ def model_configuration_controls() -> dict:
     signature = (
         task, learning, selected_name, binary_name, subtype_name, hierarchical,
         model_choice == "Best Model", use_augmentation, factor, noise,
+        tuple(selected_sensors),
     )
     is_trained = (
         st.session_state.trained_model is not None
@@ -485,6 +505,8 @@ def model_configuration_controls() -> dict:
         "camera_index": 0,
         "use_wearable": st.session_state.use_wearable,
         "wearable_port": st.session_state.wearable_port,
+        "selected_sensors": selected_sensors,
+        "feature_columns": feature_columns,
     }
 
     if st.button("Train the model", type="primary", use_container_width=True, disabled=is_trained):
@@ -497,6 +519,7 @@ def model_configuration_controls() -> dict:
                         use_augmentation=use_augmentation,
                         augmentation_factor=factor,
                         noise_level=noise,
+                        feature_columns=feature_columns,
                     )
                 else:
                     model = pipeline.build_and_train_model(
@@ -506,6 +529,7 @@ def model_configuration_controls() -> dict:
                         use_augmentation=use_augmentation,
                         augmentation_factor=factor,
                         noise_level=noise,
+                        feature_columns=feature_columns,
                     )
                 st.session_state.trained_model = model
                 st.session_state.model_signature = signature
@@ -525,7 +549,35 @@ def model_configuration_controls() -> dict:
                     "augmentation_name": selection.get("augmentation_name", ""),
                     "confusion_matrix_path": selection.get("confusion_matrix_path"),
                     "training_metadata": getattr(model, "training_metadata", {}),
+                    "selected_sensors": selected_sensors,
                 }
+                # Recompute the confusion matrix + metrics for the EXACT trained
+                # configuration (this sensor subset / augmentation), so what we
+                # show is measured on what was actually trained, not the saved
+                # full-three-sensor reference.
+                try:
+                    evaluation = pipeline.evaluate_model_confusion(
+                        task,
+                        learning,
+                        selected_name,
+                        hierarchical=hierarchical,
+                        binary_name=binary_name,
+                        subtype_name=subtype_name,
+                        feature_columns=feature_columns,
+                        use_augmentation=use_augmentation,
+                        augmentation_factor=factor,
+                        noise_level=noise,
+                    )
+                    st.session_state.model_info["confusion_matrix_path"] = (
+                        evaluation["confusion_matrix_path"]
+                    )
+                    st.session_state.model_info["metrics"] = evaluation["metrics"]
+                    st.session_state.model_info["metrics_source"] = "live_loso"
+                except Exception as eval_exc:  # noqa: BLE001
+                    st.warning(
+                        "Could not compute the confusion matrix for this exact "
+                        f"configuration; showing the reference instead. ({eval_exc})"
+                    )
                 settings["is_trained"] = True
                 st.session_state.app_settings = settings
             except Exception as exc:  # noqa: BLE001
@@ -705,6 +757,7 @@ def render_model_status(settings):
         # extra breathing room between the green chips and the metrics row
         st.markdown("<div style='height:2.2rem;'></div>", unsafe_allow_html=True)
 
+        live = info.get("metrics_source") == "live_loso"
         if metrics:
             cols = st.columns(len(metrics))
             labels = {
@@ -715,12 +768,25 @@ def render_model_status(settings):
             }
             for col, (key, value) in zip(cols, metrics.items()):
                 col.metric(labels.get(key, key), f"{value:.3f}")
+            st.caption(
+                "Measured by Leave-One-Subject-Out on the trained sensor subset."
+                if live
+                else "Reference metrics from the full three-sensor offline results."
+            )
         else:
             st.caption("No saved evaluation metrics were found for this exact choice.")
 
         cm_path = info.get("confusion_matrix_path")
         if cm_path and Path(cm_path).exists():
-            st.image(cm_path, caption="Saved confusion matrix", use_container_width=True)
+            st.image(
+                cm_path,
+                caption=(
+                    "Confusion matrix (LOSO) for this exact configuration"
+                    if live
+                    else "Saved confusion matrix (full three-sensor reference)"
+                ),
+                use_container_width=True,
+            )
 
 
 def render_banner(placeholder, prediction):
@@ -800,6 +866,17 @@ def render_window_metrics(placeholder):
                 st.dataframe(frame, use_container_width=True)
 
 
+def _skip_reason(use_posture, posture_rows, use_blink, blink_rows) -> str:
+    """Explain why a window was skipped (which in-use camera sensor had no data)."""
+    missing = []
+    if use_posture and not posture_rows:
+        missing.append("posture (body not visible)")
+    if use_blink and not blink_rows:
+        missing.append("blinking (face/eyes not detected)")
+    detail = " and ".join(missing) if missing else "camera data"
+    return f"Window skipped: no {detail} this window."
+
+
 def render_history(placeholder):
     """Per-window prediction log + a small state summary."""
     history = st.session_state.history
@@ -807,13 +884,23 @@ def render_history(placeholder):
         placeholder.info("No predictions yet. Start an acquisition or upload a video.")
         return
     df = pd.DataFrame(history).drop(columns=["_pred", "HR", "RMMSD"], errors="ignore")
+    # The "reason" column only exists when a window was skipped; if nothing was
+    # skipped, drop it so the table looks exactly as before (no extra column).
+    if "reason" in df.columns and df["reason"].fillna("").str.len().gt(0).any():
+        df["reason"] = df["reason"].fillna("")
+    else:
+        df = df.drop(columns=["reason"], errors="ignore")
+
     with placeholder.container():
         st.subheader("Per-window predictions")
         st.dataframe(df, use_container_width=True, hide_index=True)
-        counts = df["state"].value_counts()
-        cols = st.columns(len(counts))
-        for col, (state, n) in zip(cols, counts.items()):
-            col.metric(state.upper(), f"{n}", f"{n / len(df):.0%}")
+        # Summary counts cover predicted states only (skipped windows excluded).
+        predicted = df[df["state"] != "skipped"] if "state" in df.columns else df
+        counts = predicted["state"].value_counts()
+        if not counts.empty:
+            cols = st.columns(len(counts))
+            for col, (state, n) in zip(cols, counts.items()):
+                col.metric(state.upper(), f"{n}", f"{n / len(predicted):.0%}")
 
 
 class LiveCharts:
@@ -1021,6 +1108,12 @@ def run_realtime(model, settings):
         return
     settings["camera_index"] = camera_index
 
+    # Only track (and draw) the sensors selected for this session. A deselected
+    # camera sensor is neither processed by MediaPipe nor drawn.
+    selected = settings.get("selected_sensors") or pipeline.ALL_SENSORS
+    use_posture = "posture" in selected
+    use_blink = "blink" in selected
+
     # central layout: video on the left, metrics on the right
     col_video, col_side = st.columns([3, 2])
     video_ph = col_video.empty()
@@ -1044,33 +1137,44 @@ def run_realtime(model, settings):
             now = time.time()
             t_rel = now - window_start
 
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            rgb.flags.writeable = False
-            landmarks = pipeline.landmarks_from_results(pose.process(rgb))
-            values = posture_analyzer.extract_values(landmarks)
-            posture_ok = values is not None
-            if posture_ok:
-                posture_fe.add_sample(t_rel, *values)
+            if use_posture:
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                rgb.flags.writeable = False
+                landmarks = pipeline.landmarks_from_results(pose.process(rgb))
+                values = posture_analyzer.extract_values(landmarks)
+                posture_ok = values is not None
+                if posture_ok:
+                    posture_fe.add_sample(t_rel, *values)
+            else:
+                landmarks, values, posture_ok = None, None, False
 
-            blink_result = blink_analyzer.analyze(frame)
-            face = blink_result["face_detected"]
-            ear = blink_result["ear"]
-            if face and ear is not None:
-                blink_fe.add_sample(t_rel, ear, blink_result["is_closed"])
+            if use_blink:
+                blink_result = blink_analyzer.analyze(frame)
+                face = blink_result["face_detected"]
+                ear = blink_result["ear"]
+                if face and ear is not None:
+                    blink_fe.add_sample(t_rel, ear, blink_result["is_closed"])
+            else:
+                blink_result, face, ear = {}, False, None
 
             hr_monitor.poll()
 
-            overlay.draw_posture_skeleton(cv2, frame, landmarks, values, posture_config)
-            overlay.draw_eye_boxes(cv2, frame, blink_result.get("left_eye", []),
-                                   blink_result.get("right_eye", []),
-                                   blink_result.get("is_closed", False))
+            if use_posture:
+                overlay.draw_posture_skeleton(cv2, frame, landmarks, values, posture_config)
+            if use_blink:
+                overlay.draw_eye_boxes(cv2, frame, blink_result.get("left_eye", []),
+                                       blink_result.get("right_eye", []),
+                                       blink_result.get("is_closed", False))
 
             # end of a window -> features + prediction
             if t_rel >= window_size:
                 posture_rows = posture_fe.compute_windows()
                 blink_rows = blink_fe.compute_windows()
                 hr_mean, rmssd = hr_monitor.consume_window()
-                feature_row = pipeline.assemble_feature_row(posture_rows, blink_rows, hr_mean, rmssd)
+                feature_row = pipeline.assemble_feature_row(
+                    posture_rows, blink_rows, hr_mean, rmssd,
+                    require_posture=use_posture, require_blink=use_blink,
+                )
                 if feature_row is not None:
                     prediction = model.predict_row(feature_row)
                     stamp = time.strftime("%H:%M:%S")
@@ -1094,6 +1198,16 @@ def run_realtime(model, settings):
                         window_end=round(now - t0, 2),
                         video_source="webcam",
                     )
+                else:
+                    st.session_state.history.append({
+                        "time": time.strftime("%H:%M:%S"),
+                        "state": "skipped",
+                        "reason": _skip_reason(use_posture, posture_rows,
+                                               use_blink, blink_rows),
+                        "HR": "n/a",
+                        "RMMSD": "n/a",
+                        "_pred": None,
+                    })
                 posture_fe.reset()
                 blink_fe.reset()
                 window_start = now
@@ -1177,6 +1291,12 @@ def run_video(model, settings, video_path, heart):
     posture_fe = mods["FeatureExtractor"]()
     blink_fe = mods["BlinkFeatureExtractor"]()
 
+    # Only track (and draw) the sensors selected for this session. A deselected
+    # camera sensor is neither processed by MediaPipe nor drawn.
+    selected = settings.get("selected_sensors") or pipeline.ALL_SENSORS
+    use_posture = "posture" in selected
+    use_blink = "blink" in selected
+
     col_video, col_side = st.columns([3, 2])
     video_ph = col_video.empty()
     progress = col_video.progress(0.0, text="Analysing...")
@@ -1201,19 +1321,25 @@ def run_video(model, settings, video_path, heart):
             t = frame_index / fps
             t_rel = t - minute_start
 
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            rgb.flags.writeable = False
-            landmarks = pipeline.landmarks_from_results(pose.process(rgb))
-            values = posture_analyzer.extract_values(landmarks)
-            posture_ok = values is not None
-            if posture_ok:
-                posture_fe.add_sample(t_rel, *values)
+            if use_posture:
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                rgb.flags.writeable = False
+                landmarks = pipeline.landmarks_from_results(pose.process(rgb))
+                values = posture_analyzer.extract_values(landmarks)
+                posture_ok = values is not None
+                if posture_ok:
+                    posture_fe.add_sample(t_rel, *values)
+            else:
+                landmarks, values, posture_ok = None, None, False
 
-            blink_result = blink_analyzer.analyze(frame)
-            face = blink_result["face_detected"]
-            ear = blink_result["ear"]
-            if face and ear is not None:
-                blink_fe.add_sample(t_rel, ear, blink_result["is_closed"])
+            if use_blink:
+                blink_result = blink_analyzer.analyze(frame)
+                face = blink_result["face_detected"]
+                ear = blink_result["ear"]
+                if face and ear is not None:
+                    blink_fe.add_sample(t_rel, ear, blink_result["is_closed"])
+            else:
+                blink_result, face, ear = {}, False, None
 
             cur_hr = (heart[minute_index][0]
                       if show_hr and minute_index < len(heart) else None)
@@ -1227,7 +1353,10 @@ def run_video(model, settings, video_path, heart):
                 hr, rmssd = (heart[minute_index] if minute_index < len(heart)
                              else (float("nan"), float("nan")))
                 hr, rmssd = float(hr), float(rmssd)
-                feature_row = pipeline.assemble_feature_row(posture_rows, blink_rows, hr, rmssd)
+                feature_row = pipeline.assemble_feature_row(
+                    posture_rows, blink_rows, hr, rmssd,
+                    require_posture=use_posture, require_blink=use_blink,
+                )
                 if feature_row is not None:
                     prediction = model.predict_row(feature_row)
                     st.session_state.history.append({
@@ -1250,6 +1379,16 @@ def run_video(model, settings, video_path, heart):
                         window_end=round(t, 2),
                         video_source=st.session_state.get("session_video_source", "video"),
                     )
+                else:
+                    st.session_state.history.append({
+                        "minute": minute_index + 1,
+                        "state": "skipped",
+                        "reason": _skip_reason(use_posture, posture_rows,
+                                               use_blink, blink_rows),
+                        "HR": "n/a",
+                        "RMMSD": "n/a",
+                        "_pred": None,
+                    })
                 minute_index += 1
                 posture_fe.reset()
                 blink_fe.reset()
@@ -1257,10 +1396,12 @@ def run_video(model, settings, video_path, heart):
 
             # draw every few frames to keep the UI responsive
             if frame_index % 3 == 0:
-                overlay.draw_posture_skeleton(cv2, frame, landmarks, values, posture_config)
-                overlay.draw_eye_boxes(cv2, frame, blink_result.get("left_eye", []),
-                                       blink_result.get("right_eye", []),
-                                       blink_result.get("is_closed", False))
+                if use_posture:
+                    overlay.draw_posture_skeleton(cv2, frame, landmarks, values, posture_config)
+                if use_blink:
+                    overlay.draw_eye_boxes(cv2, frame, blink_result.get("left_eye", []),
+                                           blink_result.get("right_eye", []),
+                                           blink_result.get("is_closed", False))
                 video_ph.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), channels="RGB",
                                use_container_width=True)
                 render_banner(banner_ph, prediction)
@@ -1284,7 +1425,7 @@ def run_video(model, settings, video_path, heart):
 
 
 # =============================================================================
-# FIVE-PAGE WIZARD
+# SIX-PAGE WIZARD
 # =============================================================================
 
 def _set_page(page):
@@ -1305,7 +1446,7 @@ def _go_home():
 
 
 def _page_header(title, step):
-    st.markdown(f'<div class="swem-step">Step {step} of 5</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="swem-step">Step {step} of 6</div>', unsafe_allow_html=True)
     st.title(title)
 
 
@@ -1333,79 +1474,148 @@ def _page_home():
                   on_click=_set_page, args=(2,))
 
 
-def _page_source():
-    _page_header("Choose the acquisition source", 2)
+def _page_sensors():
+    _page_header("Choose the sensors for this session", 2)
+    active = st.session_state.get("selected_sensors") or pipeline.ALL_SENSORS
     with st.container(border=True):
+        st.write(
+            "Pick the sensors to use for this whole session. The model is trained "
+            "on exactly these sensors, and only these are used during the video or "
+            "real-time acquisition (the confusion matrix and metrics follow this "
+            "choice)."
+        )
+        col_posture, col_blink, col_heart = st.columns(3)
+        use_posture = col_posture.checkbox(
+            "Posture (camera)", value="posture" in active, key="sensor_posture"
+        )
+        use_blink = col_blink.checkbox(
+            "Blinking (camera)", value="blink" in active, key="sensor_blink"
+        )
+        use_heart = col_heart.checkbox(
+            "Heart / PPG", value="heart" in active, key="sensor_heart",
+            help="If selected, you will provide a PPG port (real time) or an HR CSV (video).",
+        )
+
+        selected = [
+            sensor
+            for sensor, on in (
+                ("posture", use_posture),
+                ("blink", use_blink),
+                ("heart", use_heart),
+            )
+            if on
+        ]
+        if selected:
+            feature_columns = pipeline.resolve_feature_columns(selected)
+            st.caption(
+                "Selected: "
+                + ", ".join(pipeline.SENSOR_LABELS[s] for s in selected)
+                + f" ({len(feature_columns)} features)."
+            )
+        else:
+            st.warning("Select at least one sensor to continue.")
+
+        if st.button("Continue", type="primary", use_container_width=True,
+                     disabled=not selected):
+            st.session_state.selected_sensors = selected
+            # Heart deselected -> no wearable for the rest of the session.
+            if "heart" not in selected:
+                st.session_state.use_wearable = False
+                st.session_state.wearable_port = ""
+            _set_page(3)
+            st.rerun()
+    _bottom_navigation(2)
+
+
+def _page_source():
+    _page_header("Choose the acquisition source", 3)
+    selected = st.session_state.get("selected_sensors") or pipeline.ALL_SENSORS
+    heart_selected = "heart" in selected
+    with st.container(border=True):
+        st.caption(
+            "Sensors for this session: "
+            + ", ".join(pipeline.SENSOR_LABELS[s] for s in selected)
+            + "."
+        )
         choice = st.radio(
             "How would you like to provide the data?",
             ["video", "realtime"],
             format_func=lambda value: {
-                "video": "Upload a video and an optional heart-rate CSV",
+                "video": "Upload a video"
+                + (" and a heart-rate CSV" if heart_selected else ""),
                 "realtime": "Start a real-time acquisition",
             }[value],
             horizontal=True,
             key="source_choice",
         )
         if choice == "video":
-            col_video, col_hr = st.columns(2)
-            video_file = col_video.file_uploader(
+            video_file = st.file_uploader(
                 "Video file", type=["mp4", "mov", "avi", "mkv"], key="video_upload"
             )
-            heart_file = col_hr.file_uploader(
-                "Heart-rate CSV (optional)", type=["csv"], key="heart_upload",
-                help="The file may contain HR and RMMSD columns, one row per minute.",
-            )
+            heart_file = None
+            if heart_selected:
+                heart_file = st.file_uploader(
+                    "Heart-rate CSV", type=["csv"], key="heart_upload",
+                    help="The file may contain HR and RMMSD columns, one row per minute.",
+                )
+                st.caption(
+                    "Heart sensor selected: provide an HR CSV for this video. "
+                    "Missing rows are imputed."
+                )
             persisted_video = st.session_state.get("uploaded_video_path")
             has_persisted_video = bool(persisted_video and Path(persisted_video).exists())
             if video_file is None and has_persisted_video:
                 st.success(
                     f"Video ready: {st.session_state.get('uploaded_video_name', 'uploaded video')}"
                 )
-            st.caption("All three sensors remain part of model training. Missing HR data is imputed.")
             if st.button("Continue", type="primary", use_container_width=True,
                          disabled=video_file is None and not has_persisted_video):
                 if video_file is not None:
                     _persist_video_upload(video_file, heart_file)
                 st.session_state.source = "video"
                 st.session_state.use_wearable = False
-                _set_page(3)
+                _set_page(4)
                 st.rerun()
-        else:
+        elif heart_selected:
             port = st.text_input(
-                "PPG serial port (optional)",
+                "PPG serial port",
                 value=st.session_state.wearable_port,
                 placeholder="Example: COM3 or /dev/ttyUSB0",
             )
-            st.caption("Leave the port empty or skip PPG to continue with camera-based sensors only.")
-            use_col, skip_col = st.columns(2)
-            if use_col.button("Continue with PPG", type="primary", use_container_width=True,
-                              disabled=not port.strip()):
+            st.caption(
+                "The heart sensor is selected, so a PPG port is required for the "
+                "live signal."
+            )
+            if st.button("Continue", type="primary", use_container_width=True,
+                         disabled=not port.strip()):
                 _remove_uploaded_video()
                 st.session_state.source = "realtime"
                 st.session_state.wearable_port = port.strip()
                 st.session_state.use_wearable = True
-                _set_page(3)
+                _set_page(4)
                 st.rerun()
-            if skip_col.button("Skip PPG", use_container_width=True):
+        else:
+            st.caption("No heart sensor selected: this session uses the camera sensors only.")
+            if st.button("Continue", type="primary", use_container_width=True):
                 _remove_uploaded_video()
                 st.session_state.source = "realtime"
                 st.session_state.wearable_port = ""
                 st.session_state.use_wearable = False
-                _set_page(3)
+                _set_page(4)
                 st.rerun()
-    _bottom_navigation(2)
+    _bottom_navigation(3)
 
 
 def _page_model():
-    _page_header("Configure and train the model", 3)
+    _page_header("Configure and train the model", 4)
     with st.container(border=True):
         settings = model_configuration_controls()
     if settings["is_trained"]:
         st.success(f"'{settings['model_name']}' is trained and ready.")
         render_model_status(settings)
         st.button("Continue to acquisition", type="primary", use_container_width=True,
-                  on_click=_set_page, args=(4,))
-    _bottom_navigation(3)
+                  on_click=_set_page, args=(5,))
+    _bottom_navigation(4)
 
 
 def _start_video_analysis():
@@ -1414,13 +1624,13 @@ def _start_video_analysis():
 
 
 def _page_acquisition():
-    _page_header("Data acquisition", 4)
+    _page_header("Data acquisition", 5)
     settings = st.session_state.get("app_settings")
     model = st.session_state.get("trained_model")
     if settings is None or model is None:
         st.warning("Train a model before starting the acquisition.")
-        st.button("Return to model configuration", on_click=_set_page, args=(3,))
-        _bottom_navigation(4)
+        st.button("Return to model configuration", on_click=_set_page, args=(4,))
+        _bottom_navigation(5)
         return
 
     start_col, stop_col = st.columns(2)
@@ -1442,7 +1652,7 @@ def _page_acquisition():
             if not video_path or not Path(video_path).exists():
                 st.error("The uploaded video is no longer available. Return to the source page.")
                 st.session_state.rt_running = False
-                _bottom_navigation(4)
+                _bottom_navigation(5)
                 return
             _begin_analysis_session("video", video_source=video_name)
             run_video(
@@ -1464,8 +1674,8 @@ def _page_acquisition():
             _clear_data()
             st.rerun()
         next_col.button("Continue", type="primary", use_container_width=True,
-                        on_click=_set_page, args=(5,))
-    _bottom_navigation(4)
+                        on_click=_set_page, args=(6,))
+    _bottom_navigation(5)
 
 
 def _finish_without_saving():
@@ -1480,7 +1690,7 @@ def _save_and_finish():
 
 
 def _page_save():
-    _page_header("Save acquisition data?", 5)
+    _page_header("Save acquisition data?", 6)
     with st.container(border=True):
         st.write("Would you like to save the reviewed acquisition as a processed CSV file?")
         save_col, discard_col = st.columns(2)
@@ -1488,17 +1698,18 @@ def _page_save():
                         on_click=_save_and_finish)
         discard_col.button("Do not save", use_container_width=True,
                            on_click=_finish_without_saving)
-    _bottom_navigation(5)
+    _bottom_navigation(6)
 
 
 def main():
     st.session_state.save_processed_data = False
     pages = {
         1: _page_home,
-        2: _page_source,
-        3: _page_model,
-        4: _page_acquisition,
-        5: _page_save,
+        2: _page_sensors,
+        3: _page_source,
+        4: _page_model,
+        5: _page_acquisition,
+        6: _page_save,
     }
     pages.get(st.session_state.page, _page_home)()
 

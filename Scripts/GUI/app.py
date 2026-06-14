@@ -14,7 +14,7 @@ optional Heart -> 18 features -> the chosen model):
 
 Run it from the project root with:
 
-    streamlit run Scripts/GUI/app.py
+    streamlit run GUI/app.py
 
 (or use the helper script ./Scripts/GUI/run.sh).
 """
@@ -617,9 +617,6 @@ def _append_processed_record(
     video_source=None,
     true_label=None,
 ):
-    if not settings.get("save_processed_data", True):
-        return
-
     model_info = st.session_state.get("model_info") or {}
     final_prediction = pretty_label(prediction.get("label", ""))
     normalized_true_label = (
@@ -656,7 +653,6 @@ def _append_processed_record(
     record["correct_prediction"] = correct_prediction
 
     st.session_state.processed_records.append(record)
-    _save_processed_records(final=False)
 
 
 def render_save_status():

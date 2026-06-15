@@ -556,6 +556,27 @@ def pretty_label(label):
     return "anomalous" if label == "abnormal" else label
 
 
+# Posture is the only mandatory sensor: when the body is not tracked the window
+# is dropped, because median-imputing every body feature collapses the model to
+# chance. Blink and heart are optional and median-imputed when missing.
+SKIP_REASON_NO_POSTURE = "Posture not detected (body not in frame)"
+
+
+def _is_missing(value):
+    """True when a sensor value is absent (None or NaN)."""
+    return value is None or (isinstance(value, float) and np.isnan(value))
+
+
+def _imputation_note(blink_rows, hr_mean, rmssd):
+    """Note for a kept window whose optional sensors were median-imputed."""
+    imputed = []
+    if not blink_rows:
+        imputed.append("blink")
+    if _is_missing(hr_mean) or _is_missing(rmssd):
+        imputed.append("heart")
+    return f"{', '.join(imputed)} imputed (median)" if imputed else ""
+
+
 def _probability_from(proba, *labels):
     for label in labels:
         if label in proba:
@@ -810,10 +831,20 @@ def render_history(placeholder):
     with placeholder.container():
         st.subheader("Per-window predictions")
         st.dataframe(df, use_container_width=True, hide_index=True)
-        counts = df["state"].value_counts()
-        cols = st.columns(len(counts))
-        for col, (state, n) in zip(cols, counts.items()):
-            col.metric(state.upper(), f"{n}", f"{n / len(df):.0%}")
+
+        # State summary covers predicted windows only; skipped ones are reported
+        # separately so they do not look like a wellbeing state.
+        predicted = df[df["state"] != "skipped"]
+        counts = predicted["state"].value_counts()
+        if len(counts):
+            cols = st.columns(len(counts))
+            for col, (state, n) in zip(cols, counts.items()):
+                col.metric(state.upper(), f"{n}", f"{n / len(predicted):.0%}")
+        skipped = int((df["state"] == "skipped").sum())
+        if skipped:
+            st.caption(
+                f"{skipped} window(s) skipped — {SKIP_REASON_NO_POSTURE.lower()}."
+            )
 
 
 class LiveCharts:
@@ -1071,12 +1102,13 @@ def run_realtime(model, settings):
                 blink_rows = blink_fe.compute_windows()
                 hr_mean, rmssd = hr_monitor.consume_window()
                 feature_row = pipeline.assemble_feature_row(posture_rows, blink_rows, hr_mean, rmssd)
+                stamp = time.strftime("%H:%M:%S")
                 if feature_row is not None:
                     prediction = model.predict_row(feature_row)
-                    stamp = time.strftime("%H:%M:%S")
                     st.session_state.history.append({
                         "time": stamp,
                         "state": pretty_label(prediction["label"]),
+                        "note": _imputation_note(blink_rows, hr_mean, rmssd),
                         "HR": "n/a" if np.isnan(hr_mean) else round(hr_mean, 1),
                         "RMMSD": "n/a" if np.isnan(rmssd) else round(rmssd, 4),
                         "_pred": prediction,
@@ -1094,6 +1126,15 @@ def run_realtime(model, settings):
                         window_end=round(now - t0, 2),
                         video_source="webcam",
                     )
+                else:
+                    st.session_state.history.append({
+                        "time": stamp,
+                        "state": "skipped",
+                        "note": SKIP_REASON_NO_POSTURE,
+                        "HR": "n/a",
+                        "RMMSD": "n/a",
+                        "_pred": None,
+                    })
                 posture_fe.reset()
                 blink_fe.reset()
                 window_start = now
@@ -1233,6 +1274,7 @@ def run_video(model, settings, video_path, heart):
                     st.session_state.history.append({
                         "minute": minute_index + 1,
                         "state": pretty_label(prediction["label"]),
+                        "note": _imputation_note(blink_rows, hr, rmssd),
                         "HR": "n/a" if np.isnan(hr) else round(hr, 1),
                         "RMMSD": "n/a" if np.isnan(rmssd) else round(rmssd, 4),
                         "_pred": prediction,
@@ -1250,6 +1292,15 @@ def run_video(model, settings, video_path, heart):
                         window_end=round(t, 2),
                         video_source=st.session_state.get("session_video_source", "video"),
                     )
+                else:
+                    st.session_state.history.append({
+                        "minute": minute_index + 1,
+                        "state": "skipped",
+                        "note": SKIP_REASON_NO_POSTURE,
+                        "HR": "n/a",
+                        "RMMSD": "n/a",
+                        "_pred": None,
+                    })
                 minute_index += 1
                 posture_fe.reset()
                 blink_fe.reset()

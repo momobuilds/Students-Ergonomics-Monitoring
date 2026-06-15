@@ -463,17 +463,26 @@ def landmarks_from_results(results):
 def assemble_feature_row(posture_rows, blink_rows, hr_mean, rmssd):
     """Combine the per-module window outputs into one 18-feature row.
 
-    Returns None when posture or blinking produced no usable window
-    (e.g. the user was not in frame for most of the minute).
+    Posture is the only mandatory sensor: without it the model would have to
+    median-impute every body feature, which collapses accuracy to chance, so
+    the window is dropped (returns None).
+
+    Blink and heart are optional. When their window is missing their features
+    are left as NaN, so the model's median imputer fills them. As long as the
+    posture is present this has a negligible accuracy cost.
     """
-    if not posture_rows or not blink_rows:
+    if not posture_rows:
         return None
 
     posture = posture_rows[0]
-    blink = blink_rows[0]
-
     row = {name: posture[name] for name in POSTURE_FEATURES}
-    row.update({name: blink[name] for name in BLINK_FEATURES})
+
+    if blink_rows:
+        blink = blink_rows[0]
+        row.update({name: blink[name] for name in BLINK_FEATURES})
+    else:
+        row.update({name: float("nan") for name in BLINK_FEATURES})
+
     row["HR"] = hr_mean
     row["RMMSD"] = rmssd
     return row
@@ -698,8 +707,8 @@ def main():
                 print("-" * 70)
                 print(f"[{time.strftime('%H:%M:%S')}] Minute complete.")
                 if feature_row is None:
-                    print("  Not enough valid camera data this minute "
-                          "(face/body not visible). No prediction.")
+                    print("  Posture not detected this minute "
+                          "(body not in frame). No prediction.")
                 else:
                     prediction = model.predict_row(feature_row)
                     hr_txt = "n/a" if np.isnan(hr_mean) else f"{hr_mean:.1f} bpm"

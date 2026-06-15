@@ -965,14 +965,17 @@ def show_persisted_charts():
         col.line_chart(frame, height=200)
 
 
-def metrics_html(ear, posture_ok, face, hr_live, hr_on, p_count, b_count, remaining):
+def metrics_html(ear, posture_ok, face, hr_live, hr_on, p_count, b_count, remaining,
+                 eye_vis=0.0, eyes_ok=True):
     good, dim = "metric-good", "metric-dim"
     ear_txt = f"{ear:.3f}" if ear is not None else "--"
     hr_txt = (f"{hr_live} bpm" if hr_live is not None else "warming up") if hr_on else "not connected"
+    eye_txt = (f"visible ({eye_vis:.0f})" if eyes_ok else f"occluded? ({eye_vis:.0f})")
     return f"""
     <ul style="list-style:none;padding-left:0;line-height:1.9;font-size:1.05rem;">
       <li><b>Next reading in</b>: {max(0.0, remaining):.1f}s</li>
       <li><b>Eyes (EAR)</b>: <span class="{good if face else dim}">{ear_txt}</span></li>
+      <li><b>Eye signal</b>: <span class="{good if (face and eyes_ok) else dim}">{eye_txt}</span></li>
       <li><b>Posture</b>: <span class="{good if posture_ok else dim}">
             {'tracked' if posture_ok else 'not visible'}</span></li>
       <li><b>Wearable</b>: <span class="{good if hr_on else dim}">{hr_txt}</span></li>
@@ -1086,7 +1089,11 @@ def run_realtime(model, settings):
             blink_result = blink_analyzer.analyze(frame)
             face = blink_result["face_detected"]
             ear = blink_result["ear"]
-            if face and ear is not None:
+            eyes_visible = blink_result.get("eyes_visible", True)
+            # Drop frames where the eyes are occluded (sunglasses/hand): FaceMesh
+            # still reports an EAR, but it is fabricated. Skipping them leaves the
+            # window with too few blink samples, so the blink features get imputed.
+            if face and ear is not None and eyes_visible:
                 blink_fe.add_sample(t_rel, ear, blink_result["is_closed"])
 
             hr_monitor.poll()
@@ -1146,7 +1153,9 @@ def run_realtime(model, settings):
             metrics_ph.markdown(
                 metrics_html(ear, posture_ok, face, hr_monitor.live_bpm,
                              hr_monitor.available, posture_fe.get_sample_count(),
-                             blink_fe.get_sample_count(), window_size - t_rel),
+                             blink_fe.get_sample_count(), window_size - t_rel,
+                             eye_vis=blink_result.get("eye_visibility", 0.0),
+                             eyes_ok=eyes_visible),
                 unsafe_allow_html=True,
             )
             if now - last_chart >= 0.4:   # store + stream one point (cheap add_rows)
@@ -1253,7 +1262,8 @@ def run_video(model, settings, video_path, heart):
             blink_result = blink_analyzer.analyze(frame)
             face = blink_result["face_detected"]
             ear = blink_result["ear"]
-            if face and ear is not None:
+            eyes_visible = blink_result.get("eyes_visible", True)
+            if face and ear is not None and eyes_visible:
                 blink_fe.add_sample(t_rel, ear, blink_result["is_closed"])
 
             cur_hr = (heart[minute_index][0]
@@ -1318,7 +1328,9 @@ def run_video(model, settings, video_path, heart):
                 metrics_ph.markdown(
                     metrics_html(ear, posture_ok, face, cur_hr, show_hr,
                                  posture_fe.get_sample_count(),
-                                 blink_fe.get_sample_count(), window_size - t_rel),
+                                 blink_fe.get_sample_count(), window_size - t_rel,
+                                 eye_vis=blink_result.get("eye_visibility", 0.0),
+                                 eyes_ok=eyes_visible),
                     unsafe_allow_html=True,
                 )
             if total_frames > 0:

@@ -44,6 +44,21 @@ MAX_BLINK_SECONDS = 1.0
 PERCLOS_BAD_THRESHOLD = 0.20
 
 # =============================================================================
+# EYE OCCLUSION DETECTION (sunglasses / hand over the eyes)
+# =============================================================================
+
+# FaceMesh keeps inferring eye landmarks even when the eyes are covered, so the
+# EAR alone cannot tell that the eyes are occluded. Instead we look at the
+# actual pixels of the eye region: a real eye (sclera, iris, lashes) has high
+# local contrast, while a dark lens or a hand is comparatively uniform.
+#
+# If the grayscale std-dev of the eye region is below this value, the eyes are
+# considered NOT really visible and that frame is dropped from the blink signal
+# (so the blink features get median-imputed instead of being trusted).
+# Camera/lighting dependent — tune by reading the live "Eye signal" value.
+EYE_VISIBILITY_MIN_STD = 18.0
+
+# =============================================================================
 # FILE PATHS
 # =============================================================================
 

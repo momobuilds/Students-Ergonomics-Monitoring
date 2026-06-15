@@ -556,6 +556,13 @@ def pretty_label(label):
     return "anomalous" if label == "abnormal" else label
 
 
+def display_label(label):
+    """Banner text for a label: 'normal' is always shown as 'Focused'."""
+    if label == "normal":
+        return "Focused"
+    return pretty_label(label)
+
+
 # Posture is the only mandatory sensor: when the body is not tracked the window
 # is dropped, because median-imputing every body feature collapses the model to
 # chance. Blink and heart are optional and median-imputed when missing.
@@ -754,10 +761,10 @@ def render_banner(placeholder, prediction):
         return
     label = prediction["label"]
     css = _STATE_CLASS.get(label, "state-waiting")
-    text = pretty_label(label).upper()
+    text = display_label(label).upper()
     if prediction.get("proba"):
         text += "  -  " + "  ".join(
-            f"{pretty_label(cls)} {prediction['proba'][cls]:.0%}"
+            f"{display_label(cls)} {prediction['proba'][cls]:.0%}"
             for cls in sorted(prediction["proba"])
         )
     placeholder.markdown(
@@ -828,6 +835,10 @@ def render_history(placeholder):
         placeholder.info("No predictions yet. Start an acquisition or upload a video.")
         return
     df = pd.DataFrame(history).drop(columns=["_pred", "HR", "RMMSD"], errors="ignore")
+    if "state" in df.columns:
+        df["state"] = df["state"].apply(
+            lambda s: "Focused" if s == "normal" else s
+        )
     with placeholder.container():
         st.subheader("Per-window predictions")
         st.dataframe(df, use_container_width=True, hide_index=True)

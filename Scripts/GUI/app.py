@@ -556,6 +556,13 @@ def pretty_label(label):
     return "anomalous" if label == "abnormal" else label
 
 
+def display_label(label):
+    """Banner text for a label: 'normal' is always shown as 'Focused'."""
+    if label == "normal":
+        return "Focused"
+    return pretty_label(label)
+
+
 # Posture is the only mandatory sensor: when the body is not tracked the window
 # is dropped, because median-imputing every body feature collapses the model to
 # chance. Blink and heart are optional and median-imputed when missing.
@@ -754,10 +761,10 @@ def render_banner(placeholder, prediction):
         return
     label = prediction["label"]
     css = _STATE_CLASS.get(label, "state-waiting")
-    text = pretty_label(label).upper()
+    text = display_label(label).upper()
     if prediction.get("proba"):
         text += "  -  " + "  ".join(
-            f"{pretty_label(cls)} {prediction['proba'][cls]:.0%}"
+            f"{display_label(cls)} {prediction['proba'][cls]:.0%}"
             for cls in sorted(prediction["proba"])
         )
     placeholder.markdown(
@@ -828,6 +835,10 @@ def render_history(placeholder):
         placeholder.info("No predictions yet. Start an acquisition or upload a video.")
         return
     df = pd.DataFrame(history).drop(columns=["_pred", "HR", "RMMSD"], errors="ignore")
+    if "state" in df.columns:
+        df["state"] = df["state"].apply(
+            lambda s: "Focused" if s == "normal" else s
+        )
     with placeholder.container():
         st.subheader("Per-window predictions")
         st.dataframe(df, use_container_width=True, hide_index=True)
@@ -919,16 +930,15 @@ def make_chart_row(show_hr: bool, charts: "LiveCharts"):
     specs = [("Eyes - EAR", charts.eye_df()),
              ("Posture angles (deg)", charts.angles_df()),
              ("Forward-head proxy (ratio)", charts.fhp_df())]
-    cols = st.columns(4 if show_hr else 3)
+    if show_hr:
+        specs.append(("Heart rate (bpm)", charts.hr_df()))
+    cols = st.columns(len(specs))
     objs = []
-    for col, (caption, frame) in zip(cols[:3], specs):
+    for col, (caption, frame) in zip(cols, specs):
         col.caption(caption)
         objs.append(col.line_chart(_empty_like(frame), height=200))
-    if show_hr:
-        cols[3].caption("Heart rate (bpm)")
-        objs.append(cols[3].empty())   # <-- empty placeholder, not line_chart
-    else:
-        objs.append(None)
+        if not show_hr:
+            objs.append(None)  # keep a 4-slot shape (ear, angles, fhp, hr)
     return tuple(objs)
 
 
@@ -940,11 +950,12 @@ def push_charts(chart_objs, charts: "LiveCharts"):
     angles_c.add_rows(rows["angles"])
     fhp_c.add_rows(rows["fhp"])
     if hr_c is not None:
-        bpm = rows["hr"]["HR (bpm)"].iloc[-1]
-        if not np.isnan(bpm):
-            _ecg_buffer.extend(bpm_to_ecg_chunk(bpm))
-            ecg_df = pd.DataFrame({"HR (bpm)": list(_ecg_buffer)})
-            hr_c.line_chart(ecg_df, height=200)
+        hr = rows["hr"]["HR (bpm)"].iloc[0]
+        if 50 < hr < 120:
+            hr_c.add_rows(rows["hr"])
+        else:
+            rows["hr"]["HR (bpm)"].iloc[0] = 50
+            hr_c.add_rows(rows["hr"])
 
 
 def show_persisted_charts():

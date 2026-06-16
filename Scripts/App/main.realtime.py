@@ -667,7 +667,9 @@ def main():
             blink_result = blink_analyzer.analyze(frame)
             last_face = blink_result["face_detected"]
             last_ear = blink_result["ear"]
-            if last_face and last_ear is not None:
+            # Drop occluded-eye frames (sunglasses/hand); the EAR FaceMesh returns
+            # is fabricated, so it would mislead the blink features.
+            if last_face and last_ear is not None and blink_result.get("eyes_visible", True):
                 blink_fe.add_sample(t_rel, last_ear, blink_result["is_closed"])
 
             # --- Wearable ---

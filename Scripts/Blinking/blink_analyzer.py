@@ -59,7 +59,8 @@ class BlinkAnalyzer:
 
         if not result.multi_face_landmarks:
             return {"face_detected": False, "ear": None, "is_closed": False,
-                    "left_eye": [], "right_eye": []}
+                    "left_eye": [], "right_eye": [],
+                    "eye_visibility": 0.0, "eyes_visible": False}
 
         landmarks = result.multi_face_landmarks[0].landmark
         h, w = frame.shape[:2]
@@ -74,17 +75,58 @@ class BlinkAnalyzer:
         right_eye = [(int(landmarks[i].x * w), int(landmarks[i].y * h))
                      for i in config.RIGHT_EYE_INDICES]
 
+        # Occlusion check: FaceMesh infers eye landmarks even behind sunglasses
+        # or a hand, so we inspect the eye pixels directly. One clearly visible
+        # eye is enough to trust the EAR for this frame.
+        eye_visibility = max(
+            self._eye_region_score(frame, left_eye),
+            self._eye_region_score(frame, right_eye),
+        )
+
         return {
             "face_detected": True,
             "ear": ear,
             "is_closed": ear < config.EAR_CLOSED_THRESHOLD,
             "left_eye": left_eye,
             "right_eye": right_eye,
+            "eye_visibility": eye_visibility,
+            "eyes_visible": eye_visibility >= config.EYE_VISIBILITY_MIN_STD,
         }
 
     def close(self):
         """Release FaceMesh resources."""
         self.face_mesh.close()
+
+    @staticmethod
+    def _eye_region_score(frame, eye_points):
+        """Grayscale std-dev over the eye bounding box (an occlusion proxy).
+
+        A real, uncovered eye has high local contrast (white sclera, dark iris,
+        lashes), so the std-dev is high. A dark lens or a hand covering the eye
+        is comparatively uniform, so the std-dev drops. Returns 0.0 when the
+        region is empty or off-frame.
+        """
+        if not eye_points:
+            return 0.0
+        xs = [p[0] for p in eye_points]
+        ys = [p[1] for p in eye_points]
+        x0, x1 = min(xs), max(xs)
+        y0, y1 = min(ys), max(ys)
+        # Eyes are wide and short; pad vertically more to include the lid/lashes.
+        pad_x = int((x1 - x0) * 0.3) + 1
+        pad_y = int((y1 - y0) * 0.8) + 2
+        h, w = frame.shape[:2]
+        x0 = max(0, x0 - pad_x)
+        x1 = min(w, x1 + pad_x)
+        y0 = max(0, y0 - pad_y)
+        y1 = min(h, y1 + pad_y)
+        if x1 <= x0 or y1 <= y0:
+            return 0.0
+        roi = frame[y0:y1, x0:x1]
+        if roi.size == 0:
+            return 0.0
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        return float(gray.std())
 
     @staticmethod
     def _eye_aspect_ratio(landmarks, indices, width, height):

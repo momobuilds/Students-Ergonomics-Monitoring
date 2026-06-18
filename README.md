@@ -4,9 +4,9 @@ An AI-powered Python application designed to monitor and analyze a student's cog
 
 ## 👥 Team Members
 * Alessia Radicula
-* Beatrice Norace
+* Beatrice Nogara
 * Alvaro Burga Larco
-* Mo Nabagheh
+* Mostafa Moazenkakhki
 
 ---
 ## 📌 Project Overview

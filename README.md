@@ -27,7 +27,8 @@ This project utilizes real-time data collection and machine learning to classify
 The application supports two distinct workflows for data ingestion and analysis:
 
 1. **Real-Time Monitoring:** Capture camera feeds and PPG sensor parameters live during your study session.
-2. **Offline File Upload:** * Upload a **video file** to analyze posture and blinking.
+2. **Offline File Upload:** 
+   * Upload a **video file** to analyze posture and blinking.
    * Upload a **CSV file** containing the recorded Heart Rate (HR) parameters.
 
 * **Dual Model Architecture:** Toggle between Supervised Classification and Unsupervised Anomaly Detection within the UI.
@@ -42,13 +43,15 @@ The application supports two distinct workflows for data ingestion and analysis:
 
 ### 2. Machine Learning Approaches
 The application gives users the flexibility to choose between two different machine learning paradigms and various 
-ML models depending on their analysis goals. 
+ML models depending on their analysis goals.
+Both paradigms are capable of differentiating whether a person is **Focused**, **Stressed**, or **Sleepy** 
+(3-class classification), or simply detecting an anomaly (**Normal/Focused** vs. a **Non-focused** state).
 Additionally, an option to automatically choose the best model according to the training results is available:
 
-| Model Type                | Classification Capability                        | Available Models / Algorithms                                                                                         | Description                                                                                                          |
-|:--------------------------|:-------------------------------------------------|:----------------------------------------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------|
-| **Supervised Learning**   | • 3-Class Classification <br>• Anomaly Detection | • Logistic Regression<br>• Support Vector Machine (SVM)<br>• Random Forest<br>• Gradient Boosting                     | Fully differentiates and labels all three specific states: **Focused**, **Stressed**, and **Sleepy**.                |
-| **Unsupervised Learning** | • Anomaly Detection                              | • Isolation Forest<br>• One-Class SVM<br>• Local Outlier Factor (LOF)<br>• K-Means<br>• Gaussian Mixture Models (GMM) | Treats **Focused** as the baseline "Normal" state, while flags **Stressed** and **Sleepy** behaviors as "Anomalous". |
+| Model Type                | Available Models / Algorithms                                                                                         |
+|:--------------------------|:----------------------------------------------------------------------------------------------------------------------|
+| **Supervised Learning**   | • Logistic Regression<br>• Support Vector Machine (SVM)<br>• Random Forest<br>• Gradient Boosting                     |
+| **Unsupervised Learning** | • Isolation Forest<br>• One-Class SVM<br>• Local Outlier Factor (LOF)<br>• K-Means<br>• Gaussian Mixture Models (GMM) |
 
 ---
 

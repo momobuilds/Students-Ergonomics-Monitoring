@@ -14,7 +14,7 @@ optional Heart -> 18 features -> the chosen model):
 
 Run it from the project root with:
 
-    streamlit run GUI/app.py
+    streamlit run ./scripts/GUI/app.py
 
 (or use the helper script ./Scripts/GUI/run.sh).
 """

@@ -1,114 +1,122 @@
-# Nearable Project
+# SWEM - Student Wellbeing Evaluation & Monitoring
 
-Team repository for the Nearable project. This repo is organized so hardware, firmware, software, documentation, and data work can move in parallel without stepping on each other.
+An AI-powered Python application designed to monitor and analyze a student's cognitive and physiological state during study sessions. By tracking posture, blinking and heartrate, the system determines whether a user is **Focused**, **Stressed**, or **Sleepy**.
 
-## Repository Map
+## 👥 Team Members
+* Alessia Radicula
+* Beatrice Norace
+* Alvaro Burga Larco
+* Mo Nabagheh
+
+---
+## 📌 Project Overview
+
+This project utilizes real-time data collection and machine learning to classify a user's mental state while studying. It leverages some monitoring techniques to gather inputs from three distinct biometrics:
+
+* **Posture:** Tracked via the computer's webcam.
+* **Blinking Rate:** Monitored via the computer's webcam.
+* **Heart Rate (HR):** Measured using a Photoplethysmogram (PPG) sensor.
+
+### Key Execution Details:
+* **Time Windows:** System parameters are captured and calculated in **1-minute intervals**.
+* **Analytics & Statistics:** After processing the session, the application generates and displays detailed statistics tracking the user's state and results over time.
+---
+
+## 🚀 Features
+
+The application supports two distinct workflows for data ingestion and analysis:
+
+1. **Real-Time Monitoring:** Capture camera feeds and PPG sensor parameters live during your study session.
+2. **Offline File Upload:** * Upload a **video file** to analyze posture and blinking.
+   * Upload a **CSV file** containing the recorded Heart Rate (HR) parameters.
+
+* **Dual Model Architecture:** Toggle between Supervised Classification and Unsupervised Anomaly Detection within the UI.
+* **Built-in Data Augmentation:** Tools to expand and enrich the training dataset.
+---
+
+## 📊 Activity Report & Methodology
+
+### 1. Data Collection & Preprocessing
+* **Dataset Creation:** The training data was collected directly from the four group members, capturing videos of each category and its related PPG heart rate measurements.
+* **Data Augmentation:** To improve model robustness, generalize predictions, and prevent overfitting, an optional data augmentation pipeline was implemented for the training dataset.
+
+### 2. Machine Learning Approaches
+The application gives users the flexibility to choose between two different machine learning paradigms and various 
+ML models depending on their analysis goals. 
+Additionally, an option to automatically choose the best model according to the training results is available:
+
+| Model Type                | Classification Capability                        | Available Models / Algorithms                                                                                         | Description                                                                                                          |
+|:--------------------------|:-------------------------------------------------|:----------------------------------------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------|
+| **Supervised Learning**   | • 3-Class Classification <br>• Anomaly Detection | • Logistic Regression<br>• Support Vector Machine (SVM)<br>• Random Forest<br>• Gradient Boosting                     | Fully differentiates and labels all three specific states: **Focused**, **Stressed**, and **Sleepy**.                |
+| **Unsupervised Learning** | • Anomaly Detection                              | • Isolation Forest<br>• One-Class SVM<br>• Local Outlier Factor (LOF)<br>• K-Means<br>• Gaussian Mixture Models (GMM) | Treats **Focused** as the baseline "Normal" state, while flags **Stressed** and **Sleepy** behaviors as "Anomalous". |
+
+---
+
+## 📁 Repository Map
 
 ```text
 .
-├── assets/              # Images, diagrams, and project media
-├── data/                # Sample, raw, and processed datasets
-├── docs/                # Proposal, architecture, research, reports, meetings
-├── firmware/            # Embedded code and firmware tests
-├── hardware/            # Schematics, PCB files, enclosures, datasheets
-├── scripts/             # Reusable project automation
-├── software/            # Mobile app, backend, dashboard, shared code
-└── tests/               # Cross-system and integration tests
+├── backup/              # Support scripts and old versions of the code
+├── data/                # Raw and processed datasets
+├── docs/                # Proposal, research, reports, and design document
+├── results/             # Statistics and information of the used machine learning models 
+├── scripts/             # Code that is used to run the application
+├── Test Video/          # Folder used to test the functionality of uploading a video
+└── Video/               # All videos that were used to train the model
+```
+---
+## 📦 Getting Started
+
+Follow these steps to set up the project locally on your machine.
+### 1. Clone the Repository
+
+Clone the repository using your preferred Git client or directly via the command line:
+
+``` bash
+git clone https://github.com/momobuilds/Students-Ergonomics-Monitoring.git
 ```
 
-## Quick Start
+Then move to the root of the project
+``` bash
+cd Students-Ergonomics-Monitoring
+```
 
-1. Read the project proposal at [docs/proposal/project-proposal.pdf](docs/proposal/project-proposal.pdf).
-2. Review [docs/architecture/overview.md](docs/architecture/overview.md) to understand the planned system.
-3. Pick work from [docs/project-board.md](docs/project-board.md) or create an issue.
-4. Work on a branch and open a pull request for review.
+### 2. Set Up the Virtual Environment
 
-## Team Workflow
+We strongly recommend creating a Python virtual environment to manage dependencies cleanly.
 
-- Use short-lived feature branches: `feature/<topic>`, `fix/<topic>`, `docs/<topic>`.
-- Keep pull requests focused on one area when possible.
-- Update documentation when a decision changes the system design, interfaces, hardware choices, or setup process.
-- Put meeting notes in `docs/meetings/YYYY-MM-DD-topic.md`.
-- Keep raw experimental data in `data/raw/` and derived outputs in `data/processed/`.
+#### Create the environment:
 
-## Main Work Areas
+``` bash
+python -m venv venv
+```
 
-- `hardware/`: sensor selection, schematics, PCB, case/enclosure design.
-- `firmware/`: sensor reading, device communication, power management, embedded tests.
-- `software/backend/`: APIs, storage, authentication, processing services.
-- `software/mobile/`: user-facing mobile experience.
-- `software/dashboard/`: web dashboard or monitoring interface.
-- `docs/`: proposal, research notes, requirements, architecture, reports.
+#### Activate the environment:
 
-## Status
+- **macOS / Linux**
 
-Initial repository structure created on 2026-05-06.
+``` bash
+source venv/bin/activate
+```
 
-## Simulated Sensor Fusion Prototype
+- **Windows**
 
-This prototype provides a complete simulated-data workflow for the ergonomics monitoring system. It generates eight hours of minute-level fake sensor readings, applies feature-level and decision-level sensor fusion, explains the result with a local LLM advisor interface, and displays everything in a Streamlit dashboard.
+``` bash
+venv\Scripts\activate
+```
 
-The project can run without real sensors. The current fake dataset includes:
+### 3. Install Dependencies
+With the virtual environment activated, install all required Python packages listed in `requirements.txt`:
 
-- `heart_rate_bpm`
-- `baseline_heart_rate_bpm`
-- `blink_rate_per_min`
-- `posture_status`
-- `slouching_time_minutes`
-- `temperature_c`
-- `data_source`
-
-Install the project requirements:
-
-```bash
+``` bash
 pip install -r requirements.txt
 ```
 
-Generate the fake sensor dataset:
-
-```bash
-python Scripts/SensorFusion/generate_fake_data.py
+### 4. Run the Application
+The project features an interactive web interface built with Streamlit. 
+To launch the application, run the following command from the root directory of the project:
+``` bash
+streamlit run ./scripts/GUI/app.py
 ```
-
-Run the dashboard:
-
-```bash
-streamlit run Scripts/SensorFusion/dashboard_app.py
-```
-
-The sensor fusion formula is:
-
-```text
-final_risk_score =
-0.35 * posture_score
-+ 0.30 * blink_score
-+ 0.25 * heart_score
-+ 0.10 * temperature_score
-```
-
-The final status is `Normal` when the score is below `0.30`, `Warning` when the score is from `0.30` up to but not including `0.60`, and `High Risk` when the score is `0.60` or above.
-
-Later, the simulated CSV will be replaced by live values from the heart-rate wearable, webcam blink detector, posture detector, and optional temperature patch. Teammates should keep the same column names when connecting real sensor modules so `Scripts/SensorFusion/fusion.py` and the dashboard can continue using the same interface.
-
-The local LLM advisor does not calculate or override the risk score. The deterministic fusion algorithm calculates the score and status first, and the advisor only explains that result and gives student-friendly ergonomic recommendations.
-
-## Local LLM Advisor and Chat
-
-The dashboard can use a local Ollama model for advice and chat. The recommended low-hardware model for this prototype is `llama3.2:1b`.
-
-Install and start Ollama locally, then pull the model:
-
-```bash
-ollama serve
-ollama pull llama3.2:1b
-```
-
-Run the Streamlit dashboard:
-
-```bash
-streamlit run Scripts/SensorFusion/dashboard_app.py
-```
-
-In the dashboard sidebar, enable `Use Local LLM with Ollama`, keep the model as `llama3.2:1b`, and keep the host as `http://localhost:11434`.
-
-The chat assistant answers questions using the current simulated dataset, selected row, and deterministic fusion result. It does not send data to the cloud, does not calculate the risk score, and should not make medical diagnoses. If Ollama is not running or the model is unavailable, the dashboard still works and falls back to mock advice.
+Once executed, your default web browser should automatically open the application. 
+If it doesn't open automatically, look at your terminal output and copy-paste the local URL provided (usually `http://localhost:8501`).

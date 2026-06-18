@@ -56,7 +56,6 @@ Additionally, an option to automatically choose the best model according to the 
 
 ```text
 .
-├── backup/              # Support scripts and old versions of the code
 ├── data/                # Raw and processed datasets
 ├── docs/                # Proposal, research, reports, and design document
 ├── results/             # Statistics and information of the used machine learning models 

@@ -1,6 +1,6 @@
 
 # SWEM - Student Wellbeing Evaluation & Monitoring
-<img width="1000" height="749" alt="WhatsApp Image 2026-06-12 at 10 33 25" src="https://github.com/user-attachments/assets/584e5bfa-c403-4bf5-a53b-6d98e85a7f59" />
+<img width="1600" height="749" alt="WhatsApp Image 2026-06-12 at 10 33 25" src="https://github.com/user-attachments/assets/584e5bfa-c403-4bf5-a53b-6d98e85a7f59" />
 
 An AI-powered Python application designed to monitor and analyze a student's cognitive and physiological state during study sessions. By tracking posture, blinking and heartrate, the system determines whether a user is **Focused**, **Stressed**, or **Sleepy**.
 

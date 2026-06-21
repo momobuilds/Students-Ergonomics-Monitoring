@@ -1394,7 +1394,7 @@ def _bottom_navigation(step):
 
 
 def _page_home():
-    logo = pipeline.PROJECT_ROOT / "docs" / "SWEM.png"
+    logo = pipeline.PROJECT_ROOT / "docs" / "proposal" / "SWEM.png"
     _, center, _ = st.columns([1, 4, 1])
     with center:
         st.image(str(logo), use_container_width=True)

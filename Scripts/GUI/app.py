@@ -937,8 +937,8 @@ def make_chart_row(show_hr: bool, charts: "LiveCharts"):
     for col, (caption, frame) in zip(cols, specs):
         col.caption(caption)
         objs.append(col.line_chart(_empty_like(frame), height=200))
-        if not show_hr:
-            objs.append(None)  # keep a 4-slot shape (ear, angles, fhp, hr)
+    if not show_hr:
+        objs.append(None)  # keep a 4-slot shape (ear, angles, fhp, hr)
     return tuple(objs)
 
 

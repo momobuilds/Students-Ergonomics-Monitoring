@@ -407,8 +407,9 @@ def model_configuration_controls() -> dict:
         horizontal=True,
         key="model_task",
     )
+    learning_choice = st.session_state.get("model_learning", "supervised")
     hierarchical = False
-    if task == "binary":
+    if task == "binary" and learning_choice != "unsupervised":
         hierarchical = st.toggle(
             "Show the anomalous subtype (sleepy / stress)",
             key="model_hierarchical",
